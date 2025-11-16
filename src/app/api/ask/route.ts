@@ -147,22 +147,17 @@ export async function POST(request: NextRequest) {
     };
 
     return NextResponse.json(responsePayload);
-  } catch (error) {
-    console.error("RAG Query Error:", error);
-    return NextResponse.json(
-      {
-        answer: "I ran into an issue retrieving that information. Please try again in a moment.",
-        sources: [],
-        confidence: 0.1,
-        error: "Internal server error",
-      },
-      { status: 500 },
-    );
-  }
-}
-        error: "Internal server error",
-      },
-      { status: 500 },
-    );
+    } catch (error) {
+      console.error("RAG Query Error:", error);
+      return NextResponse.json(
+        {
+          answer: "I ran into an issue retrieving that information. Please try again in a moment.",
+          sources: [],
+          confidence: 0.1,
+          error: "Internal server error",
+        },
+        { status: 500 },
+      );
+    }
   }
 }
