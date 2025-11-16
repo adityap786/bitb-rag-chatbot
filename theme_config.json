@@ -1,0 +1,64 @@
+{
+  "version": "1.0.0",
+  "themes": {
+    "default": {
+      "primary": "#4f46e5",
+      "accent": "#06b6d4",
+      "chatName": "BiTB Assist",
+      "avatarUrl": "",
+      "theme": "auto"
+    },
+    "legal": {
+      "primary": "#1e40af",
+      "accent": "#3b82f6",
+      "chatName": "Legal Assistant",
+      "avatarUrl": "",
+      "theme": "light"
+    },
+    "restaurant": {
+      "primary": "#dc2626",
+      "accent": "#f59e0b",
+      "chatName": "Restaurant Helper",
+      "avatarUrl": "",
+      "theme": "light"
+    },
+    "healthcare": {
+      "primary": "#059669",
+      "accent": "#10b981",
+      "chatName": "Health Assistant",
+      "avatarUrl": "",
+      "theme": "light"
+    },
+    "government": {
+      "primary": "#4b5563",
+      "accent": "#6b7280",
+      "chatName": "Civic Assistant",
+      "avatarUrl": "",
+      "theme": "light"
+    },
+    "bitb": {
+      "primary": "#DD1111",
+      "accent": "#111111",
+      "chatName": "BiTB Assistant",
+      "avatarUrl": "",
+      "theme": "dark"
+    }
+  },
+  "customization": {
+    "allowColorPicker": true,
+    "allowChatNameEdit": true,
+    "allowAvatarUpload": true,
+    "allowThemeToggle": true
+  },
+  "defaultConfig": {
+    "voiceGreeting": true,
+    "sessionPersistence": true,
+    "showSources": true,
+    "showConfidence": false,
+    "maxHistoryMessages": 20,
+    "rateLimit": {
+      "maxRequestsPerMinute": 10,
+      "clientThrottleMs": 500
+    }
+  }
+}

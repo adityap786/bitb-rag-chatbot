@@ -1,0 +1,45 @@
+
+{
+  "name": "bitb-fastify-backend",
+  "version": "1.0.0",
+  "description": "BiTB Fastify Backend Server - RAG Chatbot Widget Platform",
+  "main": "server-fastify.js",
+  "scripts": {
+    "start": "node server-fastify.js",
+    "dev": "nodemon server-fastify.js",
+    "test": "jest",
+    "lint": "eslint server-fastify.js"
+  },
+  "keywords": [
+    "fastify",
+    "chatbot",
+    "rag",
+    "embeddings",
+    "vector-search"
+  ],
+  "author": "Bits and Bytes Ltd.",
+  "license": "MIT",
+  "dependencies": {
+    "fastify": "^4.25.0",
+    "@fastify/cors": "^8.4.0",
+    "@fastify/jwt": "^7.2.0",
+    "@fastify/multipart": "^8.0.0",
+    "@fastify/rate-limit": "^9.0.0",
+    "@fastify/static": "^6.12.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0",
+    "eslint": "^8.0.0",
+    "jest": "^29.0.0"
+  },
+  "optionalDependencies": {
+    "@fastify/compress": "^6.5.0",
+    "@fastify/helmet": "^11.1.0",
+    "@fastify/metrics": "^10.3.0",
+    "@pinecone-database/pinecone": "^1.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
+}

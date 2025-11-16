@@ -1,0 +1,35 @@
+name: Security & Quality Checks
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+jobs:
+  sast-dep-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        run: npm ci
+      - name: Run ESLint
+        run: npm run lint
+      - name: Run npm audit
+        run: npm audit --audit-level=high
+      - name: Snyk scan
+        uses: snyk/actions/node@v2
+        with:
+          command: test
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      - name: Block on vulnerabilities
+        run: |
+          npm audit --audit-level=high
+          if [ $? -ne 0 ]; then
+            echo "Critical vulnerabilities found. Failing build."; exit 1;
+          fi

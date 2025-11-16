@@ -1,0 +1,31 @@
+# BiTB Python Ingestion Worker Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core embedding and vector database
+sentence-transformers==3.3.1  # Local embeddings (all-MiniLM-L6-v2)
+faiss-cpu==1.9.0.post1        # Vector database (local, free)
+numpy==2.2.3                  # Required for FAISS
+
+# HTML parsing and web crawling
+beautifulsoup4==4.12.3        # HTML parsing
+requests==2.32.3              # HTTP requests
+robotexclusionrulesparser==1.7.1  # robots.txt parsing
+
+# Document extraction
+pypdf==5.1.0                  # PDF extraction
+python-docx==1.1.2            # DOCX extraction
+
+# Text processing
+tiktoken==0.8.0               # Token counting (OpenAI tokenizer)
+
+# Optional: Advanced text splitting
+# langchain-text-splitters==0.3.4  # Advanced chunking (optional)
+
+# API fallbacks (optional)
+huggingface-hub==0.27.0       # HF Inference API fallback
+
+# Data validation
+pydantic==2.10.6              # Data validation
+
+# Utilities
+python-dotenv==1.0.1          # Environment variable management

@@ -1,0 +1,86 @@
+[
+  {
+    "question": "What is Bits and Bytes Private Limited (BiTB) and what does the BiTB platform offer?",
+    "answer": "Bits and Bytes Private Limited builds the BiTB retrieval augmented assistant platform for service, commerce, and enterprise teams. Our stack combines ingestion, hybrid search, and an embeddable widget with a female voice greeting so you can launch branded AI support in days, not months.",
+    "sources": [
+      { "url": "https://bitb.ltd/", "title": "Overview" }
+    ]
+  },
+  {
+    "question": "How does the 3-day BiTB trial work?",
+    "answer": "The BiTB trial runs for 72 hours and lets you crawl up to 50 pages or upload five documents (10 MB each). We generate an origin locked token, embed script, and usage dashboard. When the trial expires we purge vectors automatically unless you upgrade.",
+    "sources": [
+      { "url": "https://bitb.ltd/connect#trial", "title": "Trial Workflow" }
+    ]
+  },
+  {
+    "question": "What is included in the Service Desk subscription?",
+    "answer": "Service Desk is built for agencies and consultancies. It includes 5k RAG responses, three simultaneous trials, lead routing automations, Calendly and HubSpot hooks, and instant ingestion for proposals, onboarding packets, and SOP PDFs.",
+    "sources": [
+      { "url": "https://bitb.ltd/subscription", "title": "Service Desk" }
+    ]
+  },
+  {
+    "question": "How does Commerce Assist help ecommerce teams?",
+    "answer": "Commerce Assist syncs your catalog, sizing guides, and shipping policies so the assistant can personalize answers, suggest bundles, and trigger promos. It supports Shopify and headless APIs while reporting conversion and return metrics.",
+    "sources": [
+      { "url": "https://bitb.ltd/subscription", "title": "Commerce Assist" }
+    ]
+  },
+  {
+    "question": "What makes Enterprise Command suitable for regulated industries?",
+    "answer": "Enterprise Command delivers a dedicated ingestion worker with SSO, SCIM, private FAISS clusters, custom LLM gateways, and 24x7 on-call SLAs under 30 minutes. It comes with compliance reviews, retention controls, and VPC deployment options.",
+    "sources": [
+      { "url": "https://bitb.ltd/subscription", "title": "Enterprise Command" }
+    ]
+  },
+  {
+    "question": "Which data sources does BiTB support?",
+    "answer": "BiTB ingests public URLs with depth controls, PDF, DOCX, TXT, and HTML files up to 10 MB, and API feeds for Shopify or custom commerce backends. Content is chunked into 750 token windows and indexed in FAISS for fast, grounded retrieval.",
+    "sources": [
+      { "url": "https://bitb.ltd/documentation", "title": "Ingestion" }
+    ]
+  },
+  {
+    "question": "Can I customise the BiTB widget for my brand?",
+    "answer": "Yes. The trial wizard lets you set brand colours, toggle dark or light themes, rename the assistant, upload an avatar, choose widget position, and pass data attributes for theme or API overrides. Changes preview instantly before you embed.",
+    "sources": [
+      { "url": "https://bitb.ltd/documentation", "title": "Customization" }
+    ]
+  },
+  {
+    "question": "Does BiTB provide voice interactions?",
+    "answer": "BiTB ships with a warm female Web Speech greeting that plays on first hover, respects mute preferences, and mirrors the selected language. You can supply custom scripts, adjust tone per plan, or disable audio entirely.",
+    "sources": [
+      { "url": "https://bitb.ltd/documentation", "title": "Voice Greeting" }
+    ]
+  },
+  {
+    "question": "How does BiTB handle multilingual audiences?",
+    "answer": "Out of the box BiTB understands and replies in English, Hindi, and Hinglish. We configure tone and translation rules per assistant, and the greeting updates to match your language preference when available.",
+    "sources": [
+      { "url": "https://bitb.ltd/documentation", "title": "Language Support" }
+    ]
+  },
+  {
+    "question": "What privacy and security controls are in place?",
+    "answer": "Every trial token is origin locked, uploads are encrypted, vectors are isolated per tenant, and purge jobs run automatically at expiry. Enterprise Command supports customer managed keys, VPC deployment, and compliance reviews for SOC 2 and GDPR.",
+    "sources": [
+      { "url": "https://bitb.ltd/subscription", "title": "Security" }
+    ]
+  },
+  {
+    "question": "What pricing options are available after the trial?",
+    "answer": "Pricing covers three tiers: Service Desk at $149 per month, Commerce Assist at $249 per month, and Enterprise Command with custom quotes that include dedicated infrastructure. Each plan keeps the 3-day trial workflow, voice greeting, and analytics.",
+    "sources": [
+      { "url": "https://bitb.ltd/subscription", "title": "Pricing" }
+    ]
+  },
+  {
+    "question": "How can enterprise teams scale BiTB deployments?",
+    "answer": "Enterprise teams run multiple assistants with isolated knowledge vaults, manage access through SSO and SCIM, and plug in custom observability. Trial data can migrate to production without re-ingestion so you maintain history and analytics.",
+    "sources": [
+      { "url": "https://bitb.ltd/connect", "title": "Connect" }
+    ]
+  }
+]

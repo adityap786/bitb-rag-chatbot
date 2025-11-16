@@ -1,0 +1,80 @@
+[
+  {
+    "url": "https://bitb.ltd/",
+    "title": "BiTB Overview",
+    "section": "overview",
+    "content": "Bits and Bytes Private Limited operates the BiTB retrieval augmented assistant platform. We help service, commerce, and enterprise teams launch branded chat support with citations, voice greeting, and analytics through a single embeddable widget."
+  },
+  {
+    "url": "https://bitb.ltd/",
+    "title": "Platform Pillars",
+    "section": "platform",
+    "content": "BiTB brings four pillars together: ingestion via crawl or file upload, hybrid retrieval with dense and lexical search, grounded generation with citation rules, and delivery through a customizable widget and admin console."
+  },
+  {
+    "url": "https://bitb.ltd/connect#trial",
+    "title": "3-Day Guided Trial",
+    "section": "trial",
+    "content": "Trials run for 72 hours with 50 crawled pages or five 10 MB uploads, origin locked tokens, and a live dashboard. Vectors and uploads purge automatically at expiry unless you promote the workspace to production."
+  },
+  {
+    "url": "https://bitb.ltd/connect#trial",
+    "title": "Trial Onboarding Steps",
+    "section": "trial",
+    "content": "Onboard in three steps: submit your domain or files, confirm crawl depth and languages, then copy the embed snippet. Email updates and the console show ingestion status, document counts, and remaining trial responses."
+  },
+  {
+    "url": "https://bitb.ltd/documentation",
+    "title": "Supported Data Sources",
+    "section": "data",
+    "content": "BiTB accepts public URLs that respect robots.txt plus PDF, DOCX, TXT, and HTML files up to ten megabytes. Content is cleaned, deduplicated, and chunked into ~750 token passages for accurate retrieval with citations."
+  },
+  {
+    "url": "https://bitb.ltd/documentation",
+    "title": "Hybrid Retrieval Stack",
+    "section": "retrieval",
+    "content": "Hybrid search pairs BM25 keyword scoring with sentence-transformer embeddings stored in FAISS. Results are re-ranked, confidence scored, and cached so assistants respond quickly while staying grounded."
+  },
+  {
+    "url": "https://bitb.ltd/documentation",
+    "title": "Grounded Generation",
+    "section": "generation",
+    "content": "Responses follow deterministic prompts that require citations, structured summaries, and refusal logic. BiTB supports OpenRouter free-tier models by default with options for Azure OpenAI or self-hosted gateways on Enterprise Command."
+  },
+  {
+    "url": "https://bitb.ltd/",
+    "title": "Widget Experience",
+    "section": "widget",
+    "content": "The BiTB widget drops in via one script. It offers theme toggles, language detection, mute controls, accessibility shortcuts, persistent sessions, and suggested replies tuned for Service Desk, Commerce Assist, and Enterprise Command."
+  },
+  {
+    "url": "https://bitb.ltd/documentation",
+    "title": "Voice Greeting",
+    "section": "widget",
+    "content": "A warm female voice greeting plays once per session using the Web Speech API. Visitors can mute audio, provide alternate scripts, or disable speech entirely while still displaying a matching text greeting."
+  },
+  {
+    "url": "https://bitb.ltd/documentation",
+    "title": "Language Coverage",
+    "section": "localisation",
+    "content": "BiTB natively supports English, Hindi, and Hinglish with automatic detection. Additional languages are configured on request, and admins can set tone or translation policies per assistant."
+  },
+  {
+    "url": "https://bitb.ltd/subscription",
+    "title": "Security and Privacy",
+    "section": "trust",
+    "content": "Each tenant receives isolated vector stores, encrypted uploads, HTTPS-only APIs, and per-origin rate limits. Trials purge automatically while Enterprise Command adds SSO, SCIM, customer managed keys, and compliance reviews."
+  },
+  {
+    "url": "https://bitb.ltd/subscription",
+    "title": "Pricing Model",
+    "section": "pricing",
+    "content": "Pricing highlights three subscriptions: Service Desk at $149 per month with 5k responses, Commerce Assist at $249 with catalog sync and analytics, and Enterprise Command with custom quotes, dedicated infrastructure, and on-call SLAs."
+  },
+  {
+    "url": "https://bitb.ltd/connect",
+    "title": "Customer Support",
+    "section": "support",
+    "content": "Support includes documentation, email responses within one business day, live chat for paying customers, and account managers for Enterprise Command. Book onboarding or partner consultations through the Connect page."
+  }
+]

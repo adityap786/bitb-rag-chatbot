@@ -1,0 +1,221 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BiTB Widget Design Configuration",
+  "description": "Configuration schema for customizing BiTB widget appearance and behavior",
+  "type": "object",
+  "required": [
+    "trial_token",
+    "site_origin",
+    "admin_email",
+    "display_name"
+  ],
+  "properties": {
+    "trial_token": {
+      "type": "string",
+      "pattern": "^tr_[a-f0-9]{32}$",
+      "description": "Unique trial token identifier"
+    },
+    "site_origin": {
+      "type": "string",
+      "format": "uri",
+      "description": "Website origin (e.g., https://example.com)"
+    },
+    "admin_email": {
+      "type": "string",
+      "format": "email",
+      "description": "Admin email for trial notifications"
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "description": "Display name for the business/website"
+    },
+    "theme": {
+      "type": "object",
+      "description": "Visual theme configuration",
+      "properties": {
+        "primary": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "default": "#DD1111",
+          "description": "Primary brand color (hex format)"
+        },
+        "accent": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "default": "#111111",
+          "description": "Accent color (hex format)"
+        },
+        "chat_name": {
+          "type": "string",
+          "default": "Support Assistant",
+          "maxLength": 50,
+          "description": "Display name for the chatbot"
+        },
+        "avatar_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Optional avatar/logo URL for the chatbot"
+        },
+        "theme": {
+          "type": "string",
+          "enum": ["light", "dark", "auto"],
+          "default": "auto",
+          "description": "Color scheme preference"
+        },
+        "position": {
+          "type": "string",
+          "enum": ["bottom-right", "bottom-left", "top-right", "top-left"],
+          "default": "bottom-right",
+          "description": "Widget button position on screen"
+        }
+      }
+    },
+    "data_source": {
+      "type": "object",
+      "description": "Content ingestion source",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["url", "files"],
+          "description": "Type of data source"
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Website URL to crawl (required if type=url)"
+        },
+        "crawl_depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3,
+          "default": 2,
+          "description": "Maximum crawl depth for website"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "description": "File path or URL"
+          },
+          "description": "List of files to process (required if type=files)"
+        }
+      },
+      "if": {
+        "properties": {
+          "type": {
+            "const": "url"
+          }
+        }
+      },
+      "then": {
+        "required": ["url"]
+      },
+      "else": {
+        "required": ["files"]
+      }
+    },
+    "features": {
+      "type": "object",
+      "description": "Feature toggles",
+      "properties": {
+        "voice_greeting": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable voice greeting on first hover"
+        },
+        "suggested_replies": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show suggested reply buttons"
+        },
+        "transcript_export": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow users to export chat transcript"
+        },
+        "feedback": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable feedback collection"
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "description": "Trial usage limits",
+      "properties": {
+        "queries_limit": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 100,
+          "description": "Maximum number of queries during trial"
+        },
+        "max_file_size_mb": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 10,
+          "description": "Maximum file size for uploads (MB)"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "trial_token": "tr_abc123xyz456789abcdef0123456789abc",
+      "site_origin": "https://example.com",
+      "admin_email": "owner@example.com",
+      "display_name": "Example Business",
+      "theme": {
+        "primary": "#DD1111",
+        "accent": "#111111",
+        "chat_name": "Support Bot",
+        "avatar_url": "https://example.com/logo.png",
+        "theme": "auto",
+        "position": "bottom-right"
+      },
+      "data_source": {
+        "type": "url",
+        "url": "https://example.com",
+        "crawl_depth": 2
+      },
+      "features": {
+        "voice_greeting": true,
+        "suggested_replies": true,
+        "transcript_export": true,
+        "feedback": true
+      },
+      "limits": {
+        "queries_limit": 100,
+        "max_file_size_mb": 10
+      }
+    },
+    {
+      "trial_token": "tr_def456uvw789012ghi3456789jkl0123",
+      "site_origin": "https://shop.example.com",
+      "admin_email": "admin@shop.example.com",
+      "display_name": "Example Shop",
+      "theme": {
+        "primary": "#2563EB",
+        "accent": "#1E40AF",
+        "chat_name": "Shop Assistant",
+        "theme": "light"
+      },
+      "data_source": {
+        "type": "files",
+        "files": [
+          "/uploads/products.pdf",
+          "/uploads/faq.docx",
+          "/uploads/policies.txt"
+        ]
+      },
+      "features": {
+        "voice_greeting": false,
+        "suggested_replies": true
+      }
+    }
+  ]
+}
