@@ -1,7 +1,7 @@
 // Minimal production-ready MCP skeleton (TypeScript, REST API)
 import express, { Request, Response, NextFunction } from 'express';
 const tools: Record<string, Function> = require('./tools/index');
-import { v4 as uuidv4 } from 'uuid';
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 app.use(express.json());
