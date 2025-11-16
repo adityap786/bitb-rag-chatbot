@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import type { MarketingNavItem } from "@/components/marketing/MarketingNav";
-import { MarketingDesktopNav, MarketingMobileNav, marketingNavItems } from "@/components/marketing/MarketingNav";
+import { MarketingDesktopNav, MarketingMobileNav } from "@/components/marketing/MarketingNav";
+import { marketingNavItems, type MarketingNavItem } from "@/components/marketing/marketing-nav-data";
 
 export default function MarketingLayout({
   children,

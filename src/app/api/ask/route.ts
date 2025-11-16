@@ -10,10 +10,19 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { ChatPromptTemplate } from "@langchain/core/prompts";
+import { createClient } from "@supabase/supabase-js";
 import { getSupabaseRetriever } from "@/lib/rag/supabase-retriever";
+import { createLlm } from "@/lib/rag/llm-factory";
+import { AuditLogger } from "@/lib/security/audit-logging";
 import { PIIMasker, detectPII } from "@/lib/security/pii-masking";
+import {
+  checkQueryLimit,
+  incrementQueryUsage,
+  validateTenantContext,
+} from "@/lib/middleware/tenant-context";
 // Simple in-memory rate limiter (for demo; use Redis/Supabase for production)
-const tenantRateLimits = new Map();
+const tenantRateLimits = new Map<string, { count: number; windowStart: number }>();
 const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 const RATE_LIMIT_MAX = 10;
 
@@ -124,7 +133,7 @@ export async function POST(request: NextRequest) {
         ]);
 
         const promptValue = await prompt.invoke({ question: maskedQuery, context });
-        const llmResult = await llm.invoke(promptValue);
+        const llmResult = await llm.invoke(promptValue.toString());
         if (llmResult && llmResult.trim().length > 0) {
           answer = llmResult;
         }

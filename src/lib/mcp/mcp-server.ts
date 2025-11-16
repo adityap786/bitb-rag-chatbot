@@ -1,7 +1,7 @@
 // Minimal production-ready MCP skeleton (TypeScript, REST API)
 import express, { Request, Response, NextFunction } from 'express';
+import { randomUUID } from 'crypto';
 const tools: Record<string, Function> = require('./tools/index');
-const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 app.use(express.json());
@@ -27,7 +27,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // --- /session/start ---
 app.post('/session/start', (req: Request, res: Response) => {
   const { tenant_id } = req.body;
-  const session_id = uuidv4();
+  const session_id = randomUUID();
   log_event('SessionStart', { tenant_id: mask(tenant_id), session_id });
   res.json({ session_id });
 });

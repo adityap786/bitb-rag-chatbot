@@ -11,7 +11,7 @@ Usage:
 
 Security:
   - This writes keys to a local file that should be in .gitignore. The script will warn if .env.local is listed in .gitignore.
-  - For safety, the script prompts for the service role and OpenAI keys using secure input.
+  - For safety, the script prompts for the service role, OpenAI keys, and GROQ API key using secure input.
 #>
 
 param(

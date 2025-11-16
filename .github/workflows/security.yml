@@ -23,13 +23,7 @@ jobs:
         run: npm ci --legacy-peer-deps
       - name: Snyk scan (via npx)
         run: npx snyk@latest test
-      - name: Run ESLint
-        run: npm run lint
       - name: Run npm audit
         run: npm audit --audit-level=high
-      - name: Block on vulnerabilities
-        run: |
-          npm audit --audit-level=high
-          if [ $? -ne 0 ]; then
-            echo "Critical vulnerabilities found. Failing build."; exit 1;
-          fi
+      - name: Run ESLint
+        run: npm run lint

@@ -144,7 +144,7 @@ export async function handleRagQuery(
       ]);
 
       const promptValue = await prompt.invoke({ question: sanitizedQuery, context });
-      const llmResult = await llm.invoke(promptValue);
+      const llmResult = await llm.invoke(promptValue.toString());
       if (llmResult && llmResult.trim().length > 0) {
         // Replace the default extractive answer with the generated string
         // Protected: LLM output should be masked for PII if necessary

@@ -122,14 +122,25 @@ export async function getSupabaseRetriever(tenantId: string, options?: {
   });
 
   // Audit wrapper
-  const originalGetRelevantDocuments = retriever.getRelevantDocuments.bind(retriever);
-  retriever.getRelevantDocuments = async (query: string) => {
+  const retrieverWithOverride = retriever as typeof retriever & {
+    _getRelevantDocuments: (query: string) => Promise<Document[]>;
+    getRelevantDocuments?: (query: string) => Promise<Document[]>;
+  };
+
+  const originalGetRelevantDocuments = (
+    retrieverWithOverride.getRelevantDocuments?.bind(retrieverWithOverride) ||
+    retrieverWithOverride._getRelevantDocuments.bind(retrieverWithOverride)
+  );
+
+  retrieverWithOverride.getRelevantDocuments = async (query: string) => {
     const docs = await originalGetRelevantDocuments(query);
     // Audit log: timestamp, hashed tenant_id, retriever_id, top-k ids
     const timestamp = new Date().toISOString();
     const hashedTenantId = crypto.createHash('sha256').update(tenantId).digest('hex');
     const retrieverId = 'supabase';
-    const topKIds = docs.map(doc => doc.metadata?.id || doc.id || '').slice(0, options?.k ?? 3);
+    const topKIds = docs
+      .map((doc: Document) => (doc.metadata?.id as string) || (doc as any).id || '')
+      .slice(0, options?.k ?? 3);
     // Replace with real logger as needed
     console.log('[AUDIT] RAG Retrieval', {
       timestamp,
@@ -141,7 +152,7 @@ export async function getSupabaseRetriever(tenantId: string, options?: {
     return docs;
   };
 
-  return retriever;
+  return retrieverWithOverride;
 }
 
 /**

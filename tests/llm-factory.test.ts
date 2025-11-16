@@ -17,6 +17,9 @@ describe('LLM Factory - GROQ', () => {
 
     const llm = await createLlm();
     expect(llm).toBeTruthy();
+    if (!llm) {
+      throw new Error('LLM adapter not initialized');
+    }
     const out = await llm.invoke('Tell me something');
     expect(out).toBe('Hello from Groq');
   });

@@ -20,7 +20,6 @@ export function sendVoiceEvent(name: string, payload: Record<string, unknown> = 
     const event = { event: 'bitb_voice', name, timestamp: Date.now(), ...payload };
 
     // Console logging for quick debugging (non-blocking)
-    // eslint-disable-next-line no-console
     console.info('[bitb-voice]', event);
 
     // Optional GTM/dataLayer integration if present
@@ -53,7 +52,6 @@ export function sendVoiceEvent(name: string, payload: Record<string, unknown> = 
       }
     } catch {}
   } catch (e) {
-    // eslint-disable-next-line no-console
     console.debug('[bitb-voice] telemetry error', e);
   }
 }

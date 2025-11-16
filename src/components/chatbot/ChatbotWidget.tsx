@@ -97,7 +97,6 @@ function useAudioGreeting() {
         sendVoiceEvent("play_ended", { source: "mp3" });
       };
       audio.onerror = (e) => {
-        // eslint-disable-next-line no-console
         console.error("Audio playback failed.", e);
         sendVoiceEvent("play_failed", { source: "mp3", error: String(e) });
         // Try a lightweight browser TTS fallback (no network, no cost)
@@ -135,7 +134,6 @@ function useAudioGreeting() {
           sendVoiceEvent("play_ended", { trigger, source: "mp3" });
         };
         a.onerror = (e) => {
-          // eslint-disable-next-line no-console
           console.error("Audio playback failed.", e);
           sendVoiceEvent("play_failed", { trigger, source: "mp3", error: String(e) });
           trySpeechSynthesisFallback();
@@ -165,7 +163,6 @@ function useAudioGreeting() {
         sendVoiceEvent("play_success", { trigger, source: "mp3" });
       }
     } catch (err) {
-      // eslint-disable-next-line no-console
       console.error("playGreeting error:", err);
       sendVoiceEvent("play_failed", { trigger, source: "mp3", error: String(err) });
       trySpeechSynthesisFallback();

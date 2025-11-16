@@ -1,5 +1,5 @@
 import type { ChatOpenAI } from "@langchain/openai";
-import { ChatPromptTemplate } from "@langchain/core/prompts";
+import { HumanMessage } from "@langchain/core/messages";
 
 // Generic LLM adapter (keeps a minimal shape used in this app)
 export interface LLMAdapter {
@@ -66,7 +66,11 @@ class LangChainOpenAIAdapter implements LLMAdapter {
   }
 
   async invoke(prompt: string): Promise<string> {
-    return await this.llm.invoke(prompt);
+    const response = await this.llm.invoke([new HumanMessage(prompt)]);
+    const content = Array.isArray(response.content)
+      ? response.content.map((chunk) => chunk.toString()).join("")
+      : response.content;
+    return typeof content === "string" ? content : JSON.stringify(content);
   }
 }
 
