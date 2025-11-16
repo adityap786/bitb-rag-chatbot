@@ -21,10 +21,8 @@ jobs:
         run: npm run lint
       - name: Run npm audit
         run: npm audit --audit-level=high
-      - name: Snyk scan
-        uses: snyk/actions/node@v2
-        with:
-          command: test
+      - name: Snyk scan (via npx)
+        run: npx snyk@latest test
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
       - name: Block on vulnerabilities
