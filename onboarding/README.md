@@ -6,7 +6,7 @@ Quick start:
 
 ```powershell
 cd onboarding
-npm install
+npm ci
 npm start
 # Open http://localhost:4000 in your browser
 ```

@@ -19,7 +19,7 @@ PORT=3000
 
 2. Install dependencies and start the server:
 ```powershell
-npm install
+npm ci
 npm start
 ```
 
@@ -40,7 +40,7 @@ npm start
 
 1. Install dev dependencies (Playwright):
 ```powershell
-npm install
+npm ci
 npx playwright install
 ```
 

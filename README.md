@@ -125,13 +125,14 @@ cd bitb-project
 ### 2. Install Frontend Dependencies
 
 ```bash
-npm install --legacy-peer-deps
-# or
-yarn install
-# or
-pnpm install
-# or
-bun install
+# Use npm ci for deterministic installs
+npm ci
+```
+
+If you encounter peer-dependency errors during CI or local installs, run:
+
+```bash
+npm ci --legacy-peer-deps
 ```
 
 ### 3. Install Python Dependencies
@@ -501,4 +502,4 @@ For questions, issues, or feature requests:
 # Troubleshooting
 
 - **Python 3.13+ Warning:** Some dependencies (e.g., numpy, faiss-cpu, pydantic) may not support Python 3.13 yet. Use Python 3.11 or 3.12 for best results.
-- **NPM Peer Dependency Issues:** If you encounter npm install errors, use `npm install --legacy-peer-deps`.
+- **NPM Peer Dependency Issues:** If you encounter install errors, use `npm ci --legacy-peer-deps` as a fallback.

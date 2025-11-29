@@ -17,7 +17,7 @@ jobs:
         with:
           node-version: '20'
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm ci --legacy-peer-deps
       - name: Build
         run: npm run build
       - name: Upload build logs
@@ -36,7 +36,7 @@ jobs:
         with:
           node-version: '20'
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm ci --legacy-peer-deps
       - name: Run ESLint
         run: npm run lint
 
@@ -49,7 +49,7 @@ jobs:
         with:
           node-version: '20'
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm ci --legacy-peer-deps
       - name: TypeScript typecheck
         run: npx tsc --noEmit
 
@@ -63,7 +63,7 @@ jobs:
         with:
           node-version: '20'
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm ci --legacy-peer-deps
       - name: Run Vitest with coverage
         run: npx vitest run --coverage
       - name: Upload coverage report
@@ -82,7 +82,7 @@ jobs:
         with:
           node-version: '20'
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm ci --legacy-peer-deps
       - name: Run E2E tests
         run: npx vitest run tests/e2e
       - name: Upload E2E logs
