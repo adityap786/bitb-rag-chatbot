@@ -42,6 +42,7 @@ export interface RagQueryParameters {
   k?: number; // Number of results to return (default: 3)
   similarity_threshold?: number; // Minimum similarity score (default: 0.0)
   include_metadata?: boolean; // Include document metadata (default: true)
+  responseCharacterLimit?: 250 | 450; // Optional: Limit response length for brief summaries
 }
 
 export interface RagQueryResponse extends MCPToolResponse {

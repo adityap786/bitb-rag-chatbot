@@ -34,14 +34,14 @@ const supabase = createClient(requiredEnv.SUPABASE_URL, requiredEnv.SUPABASE_SER
 async function runChecks() {
   console.log('Running Supabase smoke test...');
 
-  const { data, error } = await supabase.from('trials').select('id').limit(1);
+  const { data, error } = await supabase.from('trial_tenants').select('tenant_id').limit(1);
   if (error) {
-    console.error('Failed to query trials table:', error.message);
+    console.error('Failed to query trial_tenants table:', error.message);
     process.exitCode = 1;
     return;
   }
 
-  console.log(`Connected to Supabase. Found ${data?.length ?? 0} trial rows.`);
+  console.log(`Connected to Supabase. Found ${data?.length ?? 0} tenant rows.`);
 
   const testTenantId = 'tn_' + '0'.repeat(32);
   const { error: contextError } = await supabase.rpc('set_tenant_context', { p_tenant_id: testTenantId });

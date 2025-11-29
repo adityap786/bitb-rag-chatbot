@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Header from "@/components/Header";
 
 export const metadata: Metadata = {
   title: "Company Overview | BitB - Built in India, Scaling Globally",
@@ -40,6 +41,7 @@ const principles = [
 export default function CompanyOverviewPage() {
   return (
     <div className="space-y-24 bg-black py-24 text-white">
+      <Header />
       <section>
         <div className="max-w-5xl mx-auto px-6 text-center space-y-6">
           <p className="text-xs uppercase tracking-[0.3em] text-white/60">Overview</p>

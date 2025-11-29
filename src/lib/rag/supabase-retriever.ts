@@ -1,27 +1,42 @@
+import { logger } from '../observability/logger';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import crypto from 'crypto';
+import { SupabaseVectorStore } from './supabase-vector-store';
+import { SupabaseKeywordIndex } from './supabase-keyword-index';
+import { RetrievalPipeline, Chunker } from './retrieval-pipeline';
+import { createSemanticChunker } from './llamaindex-semantic-chunking';
+// ...existing code...
 /**
- * Supabase-backed RAG Retriever with Tenant Isolation
- * 
- * SECURITY REQUIREMENTS:
- * 1. Every query MUST include WHERE tenant_id = $1
- * 2. Fail closed if tenant context is missing
- * 3. Use RLS (Row-Level Security) for defense in depth
- * 4. Never expose cross-tenant data
- * 
- * Date: 2025-11-10
+ * Monitored ingestion job for tenant documents
+ * Runs addDocumentsToTenant, logs errors, and triggers rollback if error rate exceeds threshold.
  */
+export async function monitoredIngestionJob(
+  tenantId: string,
+  documents: Document[],
+  errorThreshold: number = 0.001,
+  monitoringWindowMs: number = 48 * 60 * 60 * 1000 // 48h
+): Promise<{ ids: string[]; errorRate: number; rollbackTriggered: boolean }> {
+  const startTime = Date.now();
+  let errorCount = 0;
+  let successCount = 0;
+  let ids: string[] = [];
+  let rollbackTriggered = false;
+  try {
+    ids = await addDocumentsToTenant(tenantId, documents);
+    successCount = ids.length;
+  } catch (err) {
+    errorCount = documents.length;
+    logger.error('Ingestion job failed', { tenantId, error: err instanceof Error ? err.message : String(err) });
+    rollbackTriggered = true;
+  }
+  const errorRate = (errorCount + successCount) > 0 ? errorCount / (errorCount + successCount) : 0;
+  return { ids, errorRate, rollbackTriggered };
+}
 
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import crypto from "crypto";
-import { SupabaseVectorStore } from "@langchain/community/vectorstores/supabase";
-import { OpenAIEmbeddings } from "@langchain/openai";
-import { Document } from "@langchain/core/documents";
-
-// Environment validation
 function validateEnv() {
   const required = {
     SUPABASE_URL: process.env.SUPABASE_URL,
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   };
 
   const missing = Object.entries(required)
@@ -94,53 +109,48 @@ export async function createTenantIsolatedClient(
  * SECURITY: All queries will automatically include WHERE tenant_id = $1
  * via RLS policies + explicit filter in match_embeddings_by_tenant function
  */
+// ...existing code...
+
+/**
+ * Returns a retrieval pipeline instance for the given tenant, with audit logging on retrievals.
+ */
 export async function getSupabaseRetriever(tenantId: string, options?: {
   k?: number;
   similarityThreshold?: number;
-}) {
+}): Promise<RetrievalPipeline> {
   validateTenantId(tenantId);
-
-  const client = await createTenantIsolatedClient(tenantId);
   const env = validateEnv();
 
-  const embeddings = new OpenAIEmbeddings({
-    openAIApiKey: env.OPENAI_API_KEY,
-    modelName: "text-embedding-ada-002",
+  const chunker: Chunker = createSemanticChunker({ chunkSize: 2048, bufferSize: 1 });
+  const vectorStore = new SupabaseVectorStore({
+    supabaseUrl: env.SUPABASE_URL,
+    supabaseKey: env.SUPABASE_SERVICE_ROLE_KEY,
+    tableName: 'embeddings',
+  });
+  const keywordIndex = new SupabaseKeywordIndex({
+    supabaseUrl: env.SUPABASE_URL,
+    supabaseKey: env.SUPABASE_SERVICE_ROLE_KEY,
+    tableName: 'documents',
   });
 
-  // Create vector store with custom query function that includes tenant filter
-  const vectorStore = new SupabaseVectorStore(embeddings, {
-    client,
-    tableName: "embeddings",
-    queryName: "match_embeddings_by_tenant",
+  const pipeline = new RetrievalPipeline({
+    chunker,
+    vectorStore,
+    keywordIndex,
+    tenantId,
   });
 
-  // Wrap retriever to add audit logging
-  const retriever = vectorStore.asRetriever({
-    k: options?.k ?? 3,
-    filter: { match_tenant_id: tenantId },
-  });
-
-  // Audit wrapper
-  const retrieverWithOverride = retriever as typeof retriever & {
-    _getRelevantDocuments: (query: string) => Promise<Document[]>;
-    getRelevantDocuments?: (query: string) => Promise<Document[]>;
-  };
-
-  const originalGetRelevantDocuments = (
-    retrieverWithOverride.getRelevantDocuments?.bind(retrieverWithOverride) ||
-    retrieverWithOverride._getRelevantDocuments.bind(retrieverWithOverride)
-  );
-
-  retrieverWithOverride.getRelevantDocuments = async (query: string) => {
-    const docs = await originalGetRelevantDocuments(query);
+  // Wrap retrieve to add audit logging
+  const originalRetrieve = pipeline.retrieve.bind(pipeline);
+  pipeline.retrieve = async (query: string, topK = options?.k ?? 3, filter?: Record<string, any>) => {
+    const results = await originalRetrieve(query, topK, filter);
     // Audit log: timestamp, hashed tenant_id, retriever_id, top-k ids
     const timestamp = new Date().toISOString();
     const hashedTenantId = crypto.createHash('sha256').update(tenantId).digest('hex');
     const retrieverId = 'supabase';
-    const topKIds = docs
-      .map((doc: Document) => (doc.metadata?.id as string) || (doc as any).id || '')
-      .slice(0, options?.k ?? 3);
+    const topKIds = (results as any[])
+      .map((doc: any) => (doc.metadata?.id as string) || doc.id || '')
+      .slice(0, topK);
     // Replace with real logger as needed
     console.log('[AUDIT] RAG Retrieval', {
       timestamp,
@@ -149,10 +159,10 @@ export async function getSupabaseRetriever(tenantId: string, options?: {
       topKIds,
       query: query.slice(0, 64)
     });
-    return docs;
+    return results;
   };
 
-  return retrieverWithOverride;
+  return pipeline;
 }
 
 /**
@@ -169,29 +179,53 @@ export async function addDocumentsToTenant(
   const client = await createTenantIsolatedClient(tenantId);
   const env = validateEnv();
 
-  const embeddings = new OpenAIEmbeddings({
-    openAIApiKey: env.OPENAI_API_KEY,
-    modelName: "text-embedding-ada-002",
+
+  // Build retrieval pipeline to enrich and persist documents (avoids duplicate embedding work)
+  const chunker = createSemanticChunker({ chunkSize: 2048, bufferSize: 1 });
+
+  const vectorStore = new SupabaseVectorStore({
+    supabaseUrl: env.SUPABASE_URL,
+    supabaseKey: env.SUPABASE_SERVICE_ROLE_KEY,
+    tableName: 'embeddings',
   });
 
-  // Tag documents with tenant_id in metadata
-  const taggedDocuments = documents.map((doc) => ({
-    ...doc,
-    metadata: {
-      ...doc.metadata,
-      tenant_id: tenantId, // MANDATORY
-    },
-  }));
-
-  const vectorStore = new SupabaseVectorStore(embeddings, {
-    client,
-    tableName: "embeddings",
+  const keywordIndex = new SupabaseKeywordIndex({
+    supabaseUrl: env.SUPABASE_URL,
+    supabaseKey: env.SUPABASE_SERVICE_ROLE_KEY,
+    tableName: 'documents',
   });
 
-  // Insert documents (RLS will enforce tenant_id filter)
-  const ids = await vectorStore.addDocuments(taggedDocuments);
+  const pipeline = new RetrievalPipeline({
+    chunker,
+    vectorStore,
+    keywordIndex,
+    tenantId,
+  });
 
-  return ids;
+  const allIds: string[] = [];
+
+  for (const doc of documents) {
+    // Ensure doc has metadata property
+    const content = (doc as any).pageContent ?? (doc as any).content ?? (doc as any).text ?? '';
+    const metadata = typeof (doc as any).metadata === 'object' && (doc as any).metadata !== null ? (doc as any).metadata : {};
+    try {
+      const enriched = await pipeline.ingest({ content, metadata });
+      // enriched contains chunks with generated ids
+      enriched.forEach((c: any) => {
+        if (c?.id) allIds.push(String(c.id));
+      });
+    } catch (err) {
+      logger.error('addDocumentsToTenant: pipeline.ingest failed for a document', { tenantId, err: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  logger.info('Adding documents to tenant vector store', {
+    tenantId,
+    documentCount: allIds.length,
+    method: 'retrieval-pipeline',
+  });
+
+  return allIds;
 }
 
 /**

@@ -2,9 +2,53 @@
 
 Track project improvements, features, and technical debt.
 
+**🆕 NEW: Hybrid Framework Migration** - See `TODO_HYBRID_IMPLEMENTATION.md` for detailed LlamaIndex + LangChain architecture plan
+
 ---
 
-## 🔴 Critical Priority (Do First)
+## ✅ COMPLETED - Critical Priority
+
+### Hybrid Framework Architecture (DONE)
+- [x] **Review Hybrid Architecture Plan**
+  - See: `docs/HYBRID_FRAMEWORK_ARCHITECTURE.md`
+  - See: `docs/HYBRID_FRAMEWORK_SPECS.md`
+  - See: `TODO_HYBRID_IMPLEMENTATION.md`
+  - Decision: Approve LlamaIndex for RAG, LangChain for orchestration
+
+- [x] **Phase 1: LlamaIndex Ingestion Pipeline**
+  - [x] Implement advanced chunking (SentenceSplitter, SemanticSplitter) - `src/lib/rag/llamaindex-chunking.ts`
+  - [x] Add metadata extraction (keywords, summaries, questions, entities) - `src/lib/rag/metadata-extractors/`
+  - [x] Build per-tenant vector store isolation - `src/lib/rag/supabase-retriever.ts`
+  - [x] Create delta update system with IngestionCache - `src/lib/rag/ingest-runner.ts`
+
+- [x] **Phase 2: LlamaIndex Advanced Retrieval**
+  - [x] Implement hybrid search (VectorStore + BM25) - `src/lib/rag/hybrid-search.ts`
+  - [x] Add query transformation (HyDE, decomposition) - `src/lib/rag/query-transformers/`
+  - [x] Integrate reranking pipeline - `src/lib/rag/reranking-pipeline.ts`
+  - [x] Build subquery decomposition engine - `src/lib/rag/query-transformers/decomposition.ts`
+
+- [x] **Phase 3: LangChain Orchestration**
+  - [x] Implement conversation memory (buffer, summary, entity) - `src/lib/memory/`
+  - [x] Build intent classification & routing - `src/lib/agents/supervisor-agent.ts`
+  - [x] Create multi-step workflows - `src/lib/trial/workflow-engine.ts`
+  - [x] Add tool orchestration with caching - `src/lib/trial/tool-assignment.ts`
+
+- [x] **Phase 4: LangChain Multi-Agent System**
+  - [x] Build ReAct agent - `src/lib/agents/react-agent.ts`
+  - [x] Create specialized agents (KB, Research, Support, Escalation) - `src/lib/agents/`
+  - [x] Implement SupervisorAgent - `src/lib/agents/supervisor-agent.ts`
+  - [x] Add guardrails - `src/lib/security/rag-guardrails.ts`
+
+- [x] **Phase 5: Integration & Production**
+  - [x] Create unified HybridQueryPipeline - `src/lib/rag/hybrid-query-pipeline.ts`
+  - [x] Implement layer-wise caching & circuit breakers - `src/lib/rag/llm-client-with-breaker.ts`
+  - [x] Add distributed tracing (OpenTelemetry) - `src/lib/observability/tracing.ts`
+  - [x] Centralized prompt templates - `src/lib/prompts/templates.ts`
+  - [x] E2E testing framework - `tests/e2e/`
+
+---
+
+## 🔴 Remaining Critical Priority
 
 ### Code Quality
 - [ ] **Refactor ChatbotWidget.tsx** (currently 500+ lines)

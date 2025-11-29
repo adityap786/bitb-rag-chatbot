@@ -1,236 +1,409 @@
-// Minimal RAG pipeline setup for BitB chatbot preview
-// Uses zero-cost text splitting and bag-of-words embeddings.
-const DEFAULT_CHUNK_SIZE = 800;
-const DEFAULT_CHUNK_OVERLAP = 120;
+import crypto from 'crypto';
+import { formatResponseByCharacterLimit, type ResponseCharacterLimit } from './responseLimiter';
+import type { SemanticSearchResult } from '../types/trial';
+import TrialLogger from './trial/logger';
+import { validateTenantId } from './security/rag-guardrails';
+import { TenantIsolatedRetriever } from './rag/supabase-retriever-v2';
+import { getGroqClient } from './rag/llm-client-with-breaker';
+import { logger } from './observability/logger';
+import { createRagQueryTrace } from './observability/langfuse-client';
+import { recordRagQueryMetrics } from './monitoring/metrics';
+import { langCacheSearch, langCacheSet } from './langcache-api';
 
-function splitText(text: string, chunkSize = DEFAULT_CHUNK_SIZE, overlap = DEFAULT_CHUNK_OVERLAP) {
-  if (!text.trim()) return [text];
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
-  const chunks: string[] = [];
-  let position = 0;
-
-  while (position < text.length) {
-    const chunk = text.slice(position, position + chunkSize).trim();
-    if (chunk) chunks.push(chunk);
-    if (position + chunkSize >= text.length) break;
-    position += chunkSize - overlap;
-  }
-
-  return chunks.length ? chunks : [text.trim()];
-}
-
-export interface PlaybookEntry {
-  id: string;
+interface RagSource {
   title: string;
-  source: string;
-  content: string;
-}
-
-const playbookEntries: PlaybookEntry[] = [
-  {
-    id: "overview",
-    title: "Bits and Bytes Pvt Ltd Overview",
-    source: "https://bitb.ltd/",
-    content:
-      "**Bits and Bytes Pvt Ltd (BiTB)** builds retrieval augmented chat assistants that let your customers and teams talk to your knowledge base in plain language.\n\n- Mission: deliver human sounding automation that never guesses.\n- Platform: ingestion pipeline, LangChain RAG core, and a voice enabled widget.\n- Coverage: service operators, ecommerce brands, and enterprise teams run on the same secure stack.\n\nAsk me about subscriptions, onboarding, or how we protect your data.",
-  },
-  {
-    id: "widget-purpose",
-    title: "Why the BiTB Widget Exists",
-    source: "https://bitb.ltd/platform",
-    content:
-      "The BiTB widget exists so visitors can ask about Bits and Bytes Pvt Ltd offerings without waiting for a human. It understands our roadmap, pricing, use cases, and launch process. Every answer cites trusted sources indexed by our own ingestion worker.",
-  },
-  {
-    id: "service-desk",
-    title: "BiTB Service Desk Plan",
-    source: "https://bitb.ltd/subscription/service",
-    content:
-      "**BiTB Service Desk** is built for agencies, studios, and consultancies.\n\n- Includes 5k monthly RAG responses across 3 active trials.\n- Drag and drop proposals, onboarding guides, and SOP PDFs for instant ingestion.\n- Voice greeting tuned for lead nurturing with call-to-action prompts.\n- Calendly and HubSpot connectors route hot leads to humans.\n\nTeams typically reduce email back-and-forth by 60 percent in the first month.",
-  },
-  {
-    id: "commerce-assist",
-    title: "BiTB Commerce Assist Plan",
-    source: "https://bitb.ltd/subscription/commerce",
-    content:
-      "**BiTB Commerce Assist** powers ecommerce brands that need product aware chat.\n\n- Syncs product catalogs, sizing charts, and shipping policies.\n- Supports cart sensitive replies: size guides, bundle suggestions, backorder alerts.\n- Integrates with Shopify or headless storefront APIs.\n- Provides AOV and conversion analytics per conversation.\n\nCommerce teams see fewer returns and higher first contact resolution.",
-  },
-  {
-    id: "enterprise-command",
-    title: "BiTB Enterprise Command Plan",
-    source: "https://bitb.ltd/subscription/enterprise",
-    content:
-      "**BiTB Enterprise Command** is for regulated industries and global support orgs.\n\n- Dedicated ingestion worker with SSO, SCIM, and audit trails.\n- Private VPC or on-prem FAISS cluster with configurable retention.\n- Custom LLM endpoints (OpenAI Azure, Anthropic, or internal).\n- 24x7 support with response time SLAs under 30 minutes.\n\nThis plan passes SOC 2 readiness and supports redaction policies out of the box.",
-  },
-  {
-    id: "plan-comparison",
-    title: "BiTB Plan Comparison",
-    source: "https://bitb.ltd/subscription",
-    content:
-      "Here is how the three BiTB subscriptions compare:\n\n- **Service Desk**: 5k responses, 3 simultaneous trials, lead routing automations.\n- **Commerce Assist**: 10k responses, product catalog sync, conversion analytics.\n- **Enterprise Command**: custom limits, dedicated infrastructure, compliance tooling.\n\nAll plans inherit the 3 day free trial workflow, voice greeting, and origin locked embeds.",
-  },
-  {
-    id: "service-use-cases",
-    title: "Service Business Use Cases",
-    source: "https://bitb.ltd/use-cases/service",
-    content:
-      "Service businesses use BiTB to:\n\n- Answer onboarding questions instantly from proposals and playbooks.\n- Qualify leads and capture project briefs via conversational forms.\n- Surface service catalog content with pricing guidance.\n- Route escalation requests to Slack or email when human follow up is needed.",
-  },
-  {
-    id: "commerce-use-cases",
-    title: "Commerce Use Cases",
-    source: "https://bitb.ltd/use-cases/commerce",
-    content:
-      "Ecommerce teams rely on BiTB Commerce Assist to:\n\n- Deliver sizing and fit answers using synchronized product data.\n- Provide shipping cutoffs, returns windows, and localized policy details.\n- Trigger back in stock alerts and promo codes through voice friendly flows.\n- Collect post purchase feedback without leaving the storefront.",
-  },
-  {
-    id: "enterprise-use-cases",
-    title: "Enterprise Command Use Cases",
-    source: "https://bitb.ltd/use-cases/enterprise",
-    content:
-      "Enterprise Command deployments cover:\n\n- Global support desks that need consistent policy answers.\n- Internal enablement bots for SOP, compliance, and HR FAQs.\n- Partner portals where access must be scoped per tenant.\n- Disaster recovery task forces with real time content updates.",
-  },
-  {
-    id: "trial",
-    title: "BiTB Trial Workflow",
-    source: "https://bitb.ltd/trial",
-    content:
-      "The BiTB trial lasts 72 hours. You can ingest up to 50 crawled pages or upload five 10 MB files per trial. We issue a token locked to your origin, and the system purges embeddings plus cached answers automatically when the timer ends.",
-  },
-  {
-    id: "ingestion",
-    title: "Ingestion Pipeline",
-    source: "https://bitb.ltd/docs/ingestion",
-    content:
-      "Our ingestion pipeline:\n\n1. Crawl or upload: PDFs, DOCX, TXT, HTML, and sitemap aware URLs.\n2. Clean: remove navigation noise, detect sections, preserve tables.\n3. Chunk: 750 token windows with semantic overlap to boost recall.\n4. Embed: sentence-transformer MiniLM locally or Hugging Face fallback.\n5. Store: FAISS per trial with cosine similarity and metadata filters.\n\nLangChain orchestrates retrieval plus answer synthesis every time you ask a question.",
-  },
-  {
-    id: "security",
-    title: "Security and Compliance",
-    source: "https://bitb.ltd/security",
-    content:
-      "Security practices at Bits and Bytes Pvt Ltd:\n\n- Trials and paid environments keep vectors isolated per tenant.\n- Automatic PII redaction (emails, phones, IDs) before storage.\n- Logging pipeline masks sensitive data and respects regional data residency.\n- SOC 2 readiness with quarterly penetration testing and incident response runbooks.\n\nEnterprise Command customers can request custom data retention schedules.",
-  }
-];
-
-type EmbeddingVector = number[];
-
-interface PlaybookChunk {
-  entry: PlaybookEntry;
   chunk: string;
+  similarity: number;
+  index: number;
+  metadata?: Record<string, any>;
 }
 
-let cachedChunks: PlaybookChunk[] | null = null;
-let cachedEmbeddings: EmbeddingVector[] | null = null;
+interface CachedRagResponse {
+  answer: string;
+  sources: RagSource[];
+  confidence: number;
+  llmError: string | null;
+  llmProvider: string;
+  llmModel: string;
+  latencyMs: number;
+  characterLimitApplied: ResponseCharacterLimit | null;
+  originalLength: number;
+  usage?: {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+  };
+}
 
-function buildPlaybookChunks(): PlaybookChunk[] {
-  const records: PlaybookChunk[] = [];
-  for (const entry of playbookEntries) {
-    const combined = `${entry.title}\n${entry.content}`;
-    const segments = splitText(combined);
-    for (const segment of segments) {
-      records.push({ entry, chunk: segment });
+
+const fallbackResponseCache = new Map<string, { response: CachedRagResponse; timestamp: number }>();
+
+function createResponseCacheKey(params: {
+  tenantId: string;
+  llmProvider: string;
+  llmModel: string;
+  k: number;
+  query: string;
+}): string {
+  const payload = `${params.tenantId}|${params.llmProvider}|${params.llmModel}|${params.k}|${params.query}`;
+  return crypto.createHash('sha1').update(payload).digest('hex');
+}
+
+
+
+
+export interface McpHybridRagResult {
+  answer: string;
+  sources: RagSource[];
+  confidence: number;
+  llmError: string | null;
+  llmProvider: string;
+  llmModel: string;
+  latencyMs: number;
+  characterLimitApplied: ResponseCharacterLimit | null;
+  originalLength: number;
+  cache?: boolean;
+  usage?: {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+  };
+}
+
+export interface McpHybridRagQueryParams {
+  tenantId: string;
+  query: string;
+  k?: number;
+  llmProvider?: string;
+  llmModel?: string;
+  responseCharacterLimit?: ResponseCharacterLimit;
+}
+
+function buildContextFromResults(results: Array<{ chunk_text?: string; chunk?: string }>): string {
+  return (results || [])
+    .map((r) => r.chunk_text ?? r.chunk ?? '')
+    .filter(Boolean)
+    .slice(0, 6)
+    .join('\n\n');
+}
+
+export async function mcpHybridRagQuery({
+  tenantId,
+  query,
+  k = 5,
+  llmProvider = 'groq',
+  llmModel = 'llama-3-groq-70b-8192-tool-use-preview',
+  responseCharacterLimit,
+}: McpHybridRagQueryParams): Promise<McpHybridRagResult> {
+  validateTenantId(tenantId);
+  const startTime = Date.now();
+  const cacheKey = createResponseCacheKey({ tenantId, llmProvider, llmModel, k, query });
+
+  // Normalized LLM usage info (if available)
+  let llmUsage: { promptTokens?: number; completionTokens?: number; totalTokens?: number } | undefined;
+
+  // 1. Try LangCache SaaS semantic cache
+  try {
+    const langCacheResult = await langCacheSearch(cacheKey);
+    if (langCacheResult && langCacheResult.response) {
+      logger.info('LangCache SaaS hit', {
+        tenantId,
+        llmProvider,
+        llmModel,
+        k,
+        source: 'langcache-saas',
+      });
+      return {
+        ...langCacheResult.response,
+        latencyMs: Date.now() - startTime,
+        cache: true,
+      };
     }
+  } catch (err) {
+    logger.warn('LangCache SaaS search failed', {
+      error: err instanceof Error ? err.message : String(err),
+      tenantId,
+      llmProvider,
+      llmModel,
+      k,
+      source: 'langcache-saas',
+    });
   }
-  return records;
-}
 
-function getPlaybookChunkRecords(): PlaybookChunk[] {
-  if (!cachedChunks) {
-    cachedChunks = buildPlaybookChunks();
-    cachedEmbeddings = null;
-  }
-  return cachedChunks;
-}
-
-export function getPlaybookEntries(): PlaybookEntry[] {
-  return playbookEntries;
-}
-
-export function getPlaybookChunks(): string[] {
-  return getPlaybookChunkRecords().map((record) => record.chunk);
-}
-
-function embedChunk(chunk: string): EmbeddingVector {
-  const vec = Array<number>(128).fill(0);
-  for (const char of chunk) {
-    const code = char.charCodeAt(0);
-    if (code < 128) vec[code]++;
-  }
-  const norm = Math.sqrt(vec.reduce((sum, v) => sum + v * v, 0));
-  return norm ? vec.map((v) => v / norm) : vec;
-}
-
-export function getPlaybookEmbeddings(): EmbeddingVector[] {
-  if (!cachedEmbeddings) {
-    cachedEmbeddings = getPlaybookChunkRecords().map((record) => embedChunk(record.chunk));
-  }
-  // Return copies to avoid accidental mutation upstream.
-  return cachedEmbeddings.map((vec) => [...vec]);
-}
-
-export function reviewPlaybookOutput() {
-  const records = getPlaybookChunkRecords();
-  const embeddings = getPlaybookEmbeddings();
-  console.log('Playbook entries:', playbookEntries.length);
-  console.log('Chunk count:', records.length);
-  console.log('First chunk source:', records[0]?.entry.title ?? 'n/a');
-  return { entries: playbookEntries, chunks: records.map((r) => r.chunk), embeddings };
-}
-
-function embedQuery(query: string): EmbeddingVector {
-  return embedChunk(query);
-}
-
-function cosineSimilarity(a: EmbeddingVector, b: EmbeddingVector): number {
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
-  }
-  return normA && normB ? dot / (Math.sqrt(normA) * Math.sqrt(normB)) : 0;
-}
-
-function keywordScore(chunk: string, query: string): number {
-  const chunkLower = chunk.toLowerCase();
-  const queryWords = query.toLowerCase().split(/\W+/);
-  let score = 0;
-  for (const word of queryWords) {
-    if (word && chunkLower.includes(word)) score++;
-  }
-  return score;
-}
-
-export interface PlaybookSearchResult {
-  entry: PlaybookEntry;
-  chunk: string;
-  score: number;
-  keyword: number;
-  semantic: number;
-}
-
-export function searchPlaybook(query: string, topK = 3): PlaybookSearchResult[] {
-  const chunkRecords = getPlaybookChunkRecords();
-  const embeddings = getPlaybookEmbeddings();
-  const queryEmbedding = embedQuery(query);
-
-  const results = chunkRecords.map((record, index) => {
-    const keyword = keywordScore(record.chunk, query);
-    const semantic = cosineSimilarity(queryEmbedding, embeddings[index]);
-    const score = 0.7 * semantic + 0.3 * (keyword > 0 ? 1 : 0);
+  const cachedFromLocal = fallbackResponseCache.get(cacheKey);
+  if (cachedFromLocal && Date.now() - cachedFromLocal.timestamp < CACHE_TTL_MS) {
     return {
-      entry: record.entry,
-      chunk: record.chunk,
-      score,
-      keyword,
-      semantic,
+      ...cachedFromLocal.response,
+      latencyMs: Date.now() - startTime,
+      cache: true,
     };
+  }
+
+  let llmError: string | null = null;
+  let answer = '';
+  let sources: RagSource[] = [];
+  let semanticResults: SemanticSearchResult[] = [];
+  
+  // Create Langfuse trace for this RAG query
+  const traceId = crypto.createHash('sha1').update(`${tenantId}:${query}:${Date.now()}`).digest('hex');
+  const trace = createRagQueryTrace(traceId, tenantId, query);
+  
+  const retriever = await TenantIsolatedRetriever.create(tenantId, {
+    k,
+    similarityThreshold: 0.7,
+    useCache: true,
+    redisUrl: process.env.RAG_REDIS_URL,
+    cacheTtlSeconds: 300,
   });
 
-  results.sort((a, b) => b.score - a.score);
-  return results.slice(0, topK);
+  try {
+    // SPAN: Retrieval
+    const retrievalStartTime = Date.now();
+    const documents = await retriever.retrieve(query);
+    const retrievalLatencyMs = Date.now() - retrievalStartTime;
+    
+    // Log retrieval span
+    if (trace) {
+      try {
+        trace.span({
+          name: 'retrieval',
+          input: { query, k, similarity_threshold: 0.7 },
+          output: { 
+            documents_retrieved: documents.length,
+            top_similarity: documents.length > 0 ? documents[0].metadata?.similarity : null,
+          },
+          metadata: {
+            tenant_id: tenantId,
+            latency_ms: retrievalLatencyMs,
+            cache_used: documents.length > 0 ? documents[0].metadata?.cached : false,
+          },
+        });
+      } catch (err) {
+        // Span logging is best-effort
+      }
+    }
+    semanticResults = documents.map((doc, index) => ({
+      embedding_id: doc.metadata?.id || doc.metadata?.embedding_id || `doc-${index + 1}`,
+      kb_id: doc.metadata?.kb_id || doc.metadata?.source_id || `doc-${index + 1}`,
+      chunk_text: doc.pageContent,
+      similarity: typeof doc.metadata?.similarity === 'number' ? doc.metadata.similarity : 0,
+      metadata: doc.metadata || {},
+    }));
+    sources = documents.map((doc, index) => ({
+      title: doc.metadata?.title || doc.metadata?.kb_id || `source-${index + 1}`,
+      chunk: doc.pageContent,
+      similarity: typeof doc.metadata?.similarity === 'number' ? doc.metadata.similarity : 0,
+      index: index + 1,
+      metadata: doc.metadata || {},
+    }));
+
+    if (documents.length === 0) {
+      answer = 'No relevant information was found for that query.';
+    } else {
+      const context = buildContextFromResults(semanticResults);
+      const llmClient = getGroqClient();
+      
+      // SPAN: LLM Generation
+      const llmStartTime = Date.now();
+      const llmResponse = await llmClient.complete({
+        model: llmModel,
+        messages: [
+          { role: 'system', content: 'You are a helpful assistant. Answer using the provided context only and cite sources as [n].' },
+          { role: 'user', content: `Question: ${query}\n\nContext:\n${context}` },
+        ],
+        temperature: 0.15,
+        maxTokens: 512,
+      });
+      const llmLatencyMs = Date.now() - llmStartTime;
+      answer = llmResponse.content;
+      if (llmResponse.usage) {
+        llmUsage = {
+          promptTokens: llmResponse.usage.promptTokens,
+          completionTokens: llmResponse.usage.completionTokens,
+          totalTokens: llmResponse.usage.totalTokens,
+        };
+      }
+      
+      // Log LLM generation span with token usage
+      if (trace) {
+        try {
+          trace.generation({
+            name: 'llm-generation',
+            model: llmModel,
+            modelParameters: {
+              temperature: 0.15,
+              maxTokens: 512,
+            },
+            input: {
+              query,
+              context_length: context.length,
+              sources_count: documents.length,
+            },
+            output: {
+              answer: answer.substring(0, 500), // Truncate for trace storage
+            },
+            metadata: {
+              tenant_id: tenantId,
+              latency_ms: llmLatencyMs,
+              provider: llmProvider,
+            },
+            usage: {
+              promptTokens: llmResponse.usage?.promptTokens ?? (llmResponse.usage as any)?.prompt_tokens ?? 0,
+              completionTokens: llmResponse.usage?.completionTokens ?? (llmResponse.usage as any)?.completion_tokens ?? 0,
+              totalTokens: llmResponse.usage?.totalTokens ?? (llmResponse.usage as any)?.total_tokens ?? 0,
+            },
+          });
+        } catch (err) {
+          // Span logging is best-effort
+        }
+      }
+    }
+  } catch (error: any) {
+    llmError = error?.message ?? 'Unknown inference error';
+    TrialLogger.error('mcpHybridRagQuery failed', error, { tenantId, query });
+    if (!answer) {
+      answer = 'I could not reach the knowledge base right now. Please try again shortly.';
+    }
+  } finally {
+    await retriever.close();
+  }
+
+  const latencyMs = Date.now() - startTime;
+  const originalLength = answer.length;
+  if (responseCharacterLimit) {
+    answer = formatResponseByCharacterLimit(answer, responseCharacterLimit);
+  }
+
+  const finalResult: McpHybridRagResult = {
+    answer,
+    sources,
+    confidence: sources.length > 0 ? 0.8 : 0.3,
+    llmError,
+    llmProvider,
+    llmModel,
+    latencyMs,
+    characterLimitApplied: responseCharacterLimit || null,
+    originalLength,
+    usage: llmUsage,
+  };
+
+  const cachePayload: CachedRagResponse = {
+    answer: finalResult.answer,
+    sources: finalResult.sources,
+    confidence: finalResult.confidence,
+    llmError: finalResult.llmError,
+    llmProvider: finalResult.llmProvider,
+    llmModel: finalResult.llmModel,
+    latencyMs: finalResult.latencyMs,
+    characterLimitApplied: finalResult.characterLimitApplied,
+    originalLength: finalResult.originalLength,
+    usage: finalResult.usage,
+  };
+
+  fallbackResponseCache.set(cacheKey, { response: cachePayload, timestamp: Date.now() });
+  try {
+    await langCacheSet(cacheKey, cachePayload);
+  } catch (err) {
+    logger.warn('LangCache SaaS set failed', {
+      error: err instanceof Error ? err.message : String(err),
+      tenantId,
+      llmProvider,
+      llmModel,
+      k,
+      source: 'langcache-saas',
+    });
+  }
+
+  // Record Prometheus metrics
+  recordRagQueryMetrics(
+    finalResult.llmError === null,
+    finalResult.latencyMs,
+    finalResult.sources.length
+  );
+
+  // Update Langfuse trace with final results
+  if (trace) {
+    try {
+      trace.update({
+        output: {
+          answer: finalResult.answer.substring(0, 500),
+          sources_count: finalResult.sources.length,
+          confidence: finalResult.confidence,
+          character_limit_applied: finalResult.characterLimitApplied,
+          original_length: finalResult.originalLength,
+        },
+        metadata: {
+          tenant_id: tenantId,
+          llm_provider: finalResult.llmProvider,
+          llm_model: finalResult.llmModel,
+          total_latency_ms: finalResult.latencyMs,
+          success: finalResult.llmError === null,
+          error: finalResult.llmError,
+          k: k,
+          cached: false,
+        },
+        tags: [
+          `tenant:${tenantId}`,
+          `model:${finalResult.llmModel}`,
+          `provider:${finalResult.llmProvider}`,
+          finalResult.llmError ? 'error' : 'success',
+        ],
+      });
+    } catch (err) {
+      // Trace update is best-effort
+      logger.warn('Failed to update Langfuse trace', { error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  return finalResult;
+}
+
+export async function batchMcpHybridRagQuery(params: {
+  tenantId: string;
+  queries: string[];
+  k?: number;
+  llmProvider?: string;
+  llmModel?: string;
+  responseCharacterLimit?: ResponseCharacterLimit;
+}): Promise<McpHybridRagResult[]> {
+  if (!params.queries || params.queries.length === 0) {
+    return [];
+  }
+
+  const concurrency = Math.max(1, Math.min(4, params.queries.length));
+  const responses: McpHybridRagResult[] = new Array(params.queries.length);
+  const active: Promise<void>[] = [];
+
+  for (let index = 0; index < params.queries.length; index += 1) {
+    const query = params.queries[index];
+    const task = (async () => {
+      responses[index] = await mcpHybridRagQuery({
+        tenantId: params.tenantId,
+        query,
+        k: params.k,
+        llmProvider: params.llmProvider,
+        llmModel: params.llmModel,
+        responseCharacterLimit: params.responseCharacterLimit,
+      });
+    })();
+
+    active.push(task);
+    const cleanup = () => {
+      const i = active.indexOf(task);
+      if (i >= 0) {
+        active.splice(i, 1);
+      }
+    };
+    task.then(cleanup, cleanup);
+
+    if (active.length >= concurrency) {
+      await Promise.race(active);
+    }
+  }
+
+  await Promise.all(active);
+  return responses.filter((res): res is McpHybridRagResult => Boolean(res));
 }
 

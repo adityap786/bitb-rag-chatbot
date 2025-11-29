@@ -1,0 +1,296 @@
+{
+  "dashboard": {
+    "title": "RAG Pipeline - BIT B RAG Chatbot",
+    "tags": ["bitb", "rag", "llm"],
+    "timezone": "browser",
+    "schemaVersion": 27,
+    "version": 1,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "RAG Query Rate",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "expr": "rate(rag_queries_total{job=\"bitb-chatbot\"}[5m])",
+            "legendFormat": "{{tenant_id}} - {{status}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "reqps", "label": "Queries/sec" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "RAG Query Latency (p95)",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(rag_query_duration_seconds_bucket{job=\"bitb-chatbot\"}[5m]))",
+            "legendFormat": "p95",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(rag_query_duration_seconds_bucket{job=\"bitb-chatbot\"}[5m]))",
+            "legendFormat": "p50",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(rag_query_duration_seconds_bucket{job=\"bitb-chatbot\"}[5m]))",
+            "legendFormat": "p99",
+            "refId": "C"
+          }
+        ],
+        "yaxes": [
+          { "format": "s", "label": "Latency" },
+          { "format": "short" }
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": { "params": [5], "type": "gt" },
+              "operator": { "type": "and" },
+              "query": { "params": ["A", "5m", "now"] },
+              "reducer": { "params": [], "type": "avg" },
+              "type": "query"
+            }
+          ],
+          "executionErrorState": "alerting",
+          "frequency": "1m",
+          "handler": 1,
+          "name": "High RAG Query Latency",
+          "noDataState": "no_data",
+          "message": "p95 latency above 5 seconds"
+        }
+      },
+      {
+        "id": 3,
+        "title": "Vector Search Latency",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(vector_search_duration_seconds_bucket{job=\"bitb-chatbot\"}[5m]))",
+            "legendFormat": "p95",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(vector_search_duration_seconds_bucket{job=\"bitb-chatbot\"}[5m]))",
+            "legendFormat": "p50",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          { "format": "s", "label": "Search Time" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "LLM Generation Latency",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(llm_generation_duration_seconds_bucket{job=\"bitb-chatbot\"}[5m]))",
+            "legendFormat": "p95",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(llm_generation_duration_seconds_bucket{job=\"bitb-chatbot\"}[5m]))",
+            "legendFormat": "p50",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          { "format": "s", "label": "Generation Time" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Cache Hit Rate",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+        "targets": [
+          {
+            "expr": "rate(rag_cache_hits_total{job=\"bitb-chatbot\"}[5m]) / (rate(rag_cache_hits_total{job=\"bitb-chatbot\"}[5m]) + rate(rag_cache_misses_total{job=\"bitb-chatbot\"}[5m])) * 100",
+            "legendFormat": "Cache Hit Rate %",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "percent", "label": "Hit Rate %" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Token Usage",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+        "targets": [
+          {
+            "expr": "rate(llm_tokens_total{job=\"bitb-chatbot\",type=\"prompt\"}[5m])",
+            "legendFormat": "Prompt Tokens/sec",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(llm_tokens_total{job=\"bitb-chatbot\",type=\"completion\"}[5m])",
+            "legendFormat": "Completion Tokens/sec",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Tokens/sec" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Relevance Scores",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(rag_relevance_score_bucket{job=\"bitb-chatbot\"}[5m]))",
+            "legendFormat": "Median Relevance",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Score" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Retrieved Chunks per Query",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(rag_chunks_retrieved_bucket{job=\"bitb-chatbot\"}[5m]))",
+            "legendFormat": "Median Chunks",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Chunks" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Ingestion Queue Size",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+        "targets": [
+          {
+            "expr": "bullmq_queue_waiting{job=\"bitb-chatbot\",queue=\"ingestion\"}",
+            "legendFormat": "Waiting Jobs",
+            "refId": "A"
+          },
+          {
+            "expr": "bullmq_queue_active{job=\"bitb-chatbot\",queue=\"ingestion\"}",
+            "legendFormat": "Active Jobs",
+            "refId": "B"
+          },
+          {
+            "expr": "bullmq_queue_delayed{job=\"bitb-chatbot\",queue=\"ingestion\"}",
+            "legendFormat": "Delayed Jobs",
+            "refId": "C"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Jobs" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Document Processing Rate",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+        "targets": [
+          {
+            "expr": "rate(documents_processed_total{job=\"bitb-chatbot\"}[5m])",
+            "legendFormat": "{{status}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Docs/sec" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Circuit Breaker Status",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 8, "x": 0, "y": 40 },
+        "targets": [
+          {
+            "expr": "circuit_breaker_state{job=\"bitb-chatbot\",breaker=\"groq\"}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              { "options": { "0": { "text": "CLOSED", "color": "green" } } },
+              { "options": { "1": { "text": "OPEN", "color": "red" } } },
+              { "options": { "2": { "text": "HALF_OPEN", "color": "yellow" } } }
+            ],
+            "thresholds": {
+              "steps": [
+                { "value": 0, "color": "green" },
+                { "value": 1, "color": "red" },
+                { "value": 2, "color": "yellow" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 12,
+        "title": "Batch Query Optimization",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 8, "x": 8, "y": 40 },
+        "targets": [
+          {
+            "expr": "(1 - (sum(rate(vector_search_total{job=\"bitb-chatbot\",batch=\"true\"}[5m])) / sum(rate(rag_queries_total{job=\"bitb-chatbot\",batch=\"true\"}[5m])))) * 100",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "textMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                { "value": 0, "color": "red" },
+                { "value": 20, "color": "yellow" },
+                { "value": 40, "color": "green" }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

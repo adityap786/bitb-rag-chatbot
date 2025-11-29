@@ -1,0 +1,283 @@
+{
+  "dashboard": {
+    "title": "Security - BIT B RAG Chatbot",
+    "tags": ["bitb", "security", "compliance"],
+    "timezone": "browser",
+    "schemaVersion": 27,
+    "version": 1,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Rate Limit Violations",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "expr": "rate(rate_limit_exceeded_total{job=\"bitb-chatbot\"}[5m])",
+            "legendFormat": "{{identifier_type}} - {{tenant_id}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Violations/sec" },
+          { "format": "short" }
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": { "params": [10], "type": "gt" },
+              "operator": { "type": "and" },
+              "query": { "params": ["A", "5m", "now"] },
+              "reducer": { "params": [], "type": "avg" },
+              "type": "query"
+            }
+          ],
+          "executionErrorState": "alerting",
+          "frequency": "1m",
+          "handler": 1,
+          "name": "High Rate Limit Violations",
+          "noDataState": "no_data",
+          "message": "More than 10 rate limit violations per second"
+        }
+      },
+      {
+        "id": 2,
+        "title": "Failed Authentication Attempts",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+        "targets": [
+          {
+            "expr": "rate(auth_attempts_total{job=\"bitb-chatbot\",status=\"failed\"}[5m])",
+            "legendFormat": "Failed Auth",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Failures/sec" },
+          { "format": "short" }
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": { "params": [5], "type": "gt" },
+              "operator": { "type": "and" },
+              "query": { "params": ["A", "5m", "now"] },
+              "reducer": { "params": [], "type": "avg" },
+              "type": "query"
+            }
+          ],
+          "executionErrorState": "alerting",
+          "frequency": "1m",
+          "handler": 1,
+          "name": "High Failed Auth Rate",
+          "noDataState": "no_data",
+          "message": "More than 5 failed auth attempts per second - possible attack"
+        }
+      },
+      {
+        "id": 3,
+        "title": "PII Detection Rate",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "targets": [
+          {
+            "expr": "rate(pii_detected_total{job=\"bitb-chatbot\"}[5m])",
+            "legendFormat": "{{type}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Detections/sec" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Injection Attempts Blocked",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+        "targets": [
+          {
+            "expr": "rate(injection_blocked_total{job=\"bitb-chatbot\"}[5m])",
+            "legendFormat": "{{type}} injection",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Blocked/sec" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Guardrails Triggered",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+        "targets": [
+          {
+            "expr": "rate(guardrails_triggered_total{job=\"bitb-chatbot\"}[5m])",
+            "legendFormat": "{{guardrail_type}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Triggers/sec" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Tenant Isolation Violations",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+        "targets": [
+          {
+            "expr": "rate(tenant_isolation_violations_total{job=\"bitb-chatbot\"}[5m])",
+            "legendFormat": "Violations",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Violations/sec" },
+          { "format": "short" }
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": { "params": [0], "type": "gt" },
+              "operator": { "type": "and" },
+              "query": { "params": ["A", "5m", "now"] },
+              "reducer": { "params": [], "type": "avg" },
+              "type": "query"
+            }
+          ],
+          "executionErrorState": "alerting",
+          "frequency": "1m",
+          "handler": 1,
+          "name": "Tenant Isolation Violation",
+          "noDataState": "no_data",
+          "message": "CRITICAL: Tenant isolation violated - immediate investigation required"
+        }
+      },
+      {
+        "id": 7,
+        "title": "Audit Log Events",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+        "targets": [
+          {
+            "expr": "rate(audit_events_total{job=\"bitb-chatbot\"}[5m])",
+            "legendFormat": "{{event_type}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Events/sec" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Security Events by Severity",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+        "targets": [
+          {
+            "expr": "rate(security_events_total{job=\"bitb-chatbot\"}[5m])",
+            "legendFormat": "{{severity}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Events/sec" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Top Rate Limited Tenants",
+        "type": "table",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+        "targets": [
+          {
+            "expr": "topk(10, sum by (tenant_id) (rate(rate_limit_exceeded_total{job=\"bitb-chatbot\"}[5m])))",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": { "Time": true },
+              "renameByName": {
+                "tenant_id": "Tenant ID",
+                "Value": "Violations/sec"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "JWT Token Validation",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+        "targets": [
+          {
+            "expr": "rate(jwt_validation_total{job=\"bitb-chatbot\",status=\"success\"}[5m])",
+            "legendFormat": "Valid",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(jwt_validation_total{job=\"bitb-chatbot\",status=\"expired\"}[5m])",
+            "legendFormat": "Expired",
+            "refId": "B"
+          },
+          {
+            "expr": "rate(jwt_validation_total{job=\"bitb-chatbot\",status=\"invalid\"}[5m])",
+            "legendFormat": "Invalid",
+            "refId": "C"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Validations/sec" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Redis Rate Limiter Health",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 12, "x": 0, "y": 40 },
+        "targets": [
+          {
+            "expr": "health_check_status{job=\"bitb-chatbot\",service=\"redis\"}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              { "options": { "0": { "text": "DOWN - Fallback to In-Memory", "color": "yellow" } } },
+              { "options": { "1": { "text": "UP - Distributed Limiting Active", "color": "green" } } }
+            ],
+            "thresholds": {
+              "steps": [
+                { "value": 0, "color": "yellow" },
+                { "value": 1, "color": "green" }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

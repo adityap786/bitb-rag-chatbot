@@ -1,4 +1,75 @@
-(function () {
+/* BITB Widget v1.0.0 - Production Bundle */
+(function() {
+  const VERSION = '1.0.0';
+  const WIDGET_ID = 'bitb-widget-root';
+
+  function log(...args) {
+    if (window.bitbDebug) console.log('[BITB]', ...args);
+  }
+
+  function createWidgetRoot() {
+    let root = document.getElementById(WIDGET_ID);
+    if (!root) {
+      root = document.createElement('div');
+      root.id = WIDGET_ID;
+      root.style.position = 'fixed';
+      root.style.bottom = '24px';
+      root.style.right = '24px';
+      root.style.zIndex = '9999';
+      root.style.background = '#222';
+      root.style.borderRadius = '16px';
+      root.style.boxShadow = '0 4px 24px rgba(0,0,0,0.18)';
+      root.style.width = '380px';
+      root.style.height = '600px';
+      document.body.appendChild(root);
+    }
+    return root;
+  }
+
+  function renderWidget({ tenantId, env, token }) {
+    const root = createWidgetRoot();
+    root.innerHTML = '';
+    // For demo: show basic info, in real use load iframe or React app
+    const info = document.createElement('div');
+    info.style.color = '#fff';
+    info.style.padding = '24px';
+    info.innerHTML = `<b>BITB Widget</b><br>Tenant: ${tenantId}<br>Env: ${env}<br>Token: ${token ? '✔️' : '❌'}<br>Version: ${VERSION}`;
+    root.appendChild(info);
+    // TODO: Load iframe or React app here
+    return root;
+  }
+
+  function autoInitFromAttrs() {
+    const script = document.currentScript || Array.from(document.querySelectorAll('script')).find(s => s.src && s.src.includes('bitb-widget.js'));
+    if (!script) return;
+    const tenantId = script.getAttribute('data-tenant-id');
+    const env = script.getAttribute('data-env') || 'production';
+    const token = script.getAttribute('data-token') || null;
+    if (tenantId) {
+      window.bitbInit({ tenantId, env, token });
+    }
+  }
+
+  window.bitbInit = function({ tenantId, env = 'production', token = null, onReady = null }) {
+    if (!tenantId) throw new Error('BITB: tenantId required');
+    log('Initializing widget', { tenantId, env, token });
+    const widget = renderWidget({ tenantId, env, token });
+    if (typeof onReady === 'function') {
+      try { onReady(widget); } catch (e) { log('onReady error', e); }
+    }
+    window.bitbWidget = widget;
+    window.bitbWidgetVersion = VERSION;
+  };
+
+  // Auto-init if data-tenant-id present
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    autoInitFromAttrs();
+  } else {
+    window.addEventListener('DOMContentLoaded', autoInitFromAttrs);
+  }
+
+  log('BITB Widget v' + VERSION + ' loaded');
+})();(function () {
   "use strict";
 
   if (typeof window === "undefined") {

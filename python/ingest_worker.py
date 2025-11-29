@@ -17,6 +17,8 @@ Usage:
 
 import os
 import sys
+if sys.version_info >= (3, 13):
+    print("WARNING: Python 3.13+ detected. Some dependencies may not be compatible. Use Python 3.11 or 3.12 for best results.")
 import json
 import time
 import hashlib
@@ -65,7 +67,7 @@ class IngestConfig:
     max_pages: int = 50
     chunk_size: int = 600  # tokens
     chunk_overlap: int = 100
-    embedding_model: str = "all-MiniLM-L6-v2"
+    embedding_model: str = "all-mpnet-base-v2"
     use_hf_api: bool = False
     hf_api_key: Optional[str] = None
     faiss_index_path: str = "./data/faiss_indices"
@@ -257,7 +259,7 @@ class TextChunker:
 class EmbeddingGenerator:
     """Generate embeddings using local model or HF API"""
     
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2", use_hf_api: bool = False, hf_api_key: Optional[str] = None):
+    def __init__(self, model_name: str = "all-mpnet-base-v2", use_hf_api: bool = False, hf_api_key: Optional[str] = None):
         self.model_name = model_name
         self.use_hf_api = use_hf_api
         self.hf_api_key = hf_api_key or os.getenv('HF_API_KEY')
@@ -418,9 +420,23 @@ class IngestionPipeline:
         )
         index.add(embeddings.astype('float32'))
         
-        # Prepare metadata
+        # Prepare metadata (add embedding vectors into chunk metadata so upsert picks correct column)
         for i, chunk in enumerate(all_chunks):
             chunk['embedding_index'] = i
+            try:
+                vec = embeddings[i]
+                dim = vec.shape[0] if hasattr(vec, 'shape') else len(vec)
+                meta = chunk.get('metadata') or {}
+                if dim == 768:
+                    meta['embedding_768'] = vec.tolist() if hasattr(vec, 'tolist') else list(vec)
+                elif dim == 384:
+                    meta['embedding_384'] = vec.tolist() if hasattr(vec, 'tolist') else list(vec)
+                else:
+                    # leave as-is for unknown dims
+                    pass
+                chunk['metadata'] = meta
+            except Exception:
+                pass
         
         self.index_manager.save_index(index, index_path, all_chunks)
         
@@ -510,6 +526,8 @@ def main():
     parser.add_argument('--max-pages', type=int, default=50, help='Max pages (default: 50)')
     parser.add_argument('--use-hf-api', action='store_true', help='Use HuggingFace API instead of local model')
     parser.add_argument('--hf-api-key', type=str, help='HuggingFace API key')
+    parser.add_argument('--embedding-model', type=str, default='all-mpnet-base-v2', help='Embedding model to use (default: all-mpnet-base-v2)')
+    parser.add_argument('--supabase-tenant', type=str, default='tn_local_sample', help='Tenant id to tag ingested docs (default: tn_local_sample)')
     
     args = parser.parse_args()
     
@@ -526,6 +544,7 @@ def main():
         source_files=args.files,
         crawl_depth=args.depth,
         max_pages=args.max_pages,
+        embedding_model=args.embedding_model,
         use_hf_api=args.use_hf_api,
         hf_api_key=args.hf_api_key
     )

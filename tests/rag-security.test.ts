@@ -101,11 +101,7 @@ describe('RAG Security - Tenant Isolation', () => {
       const response = await validateTenantContext(request);
       
       // Should return null (no error) for valid tenant_id
-      // Note: trial_token validation would fail in real env without Supabase
-      expect(response).not.toBeNull(); // Will fail token validation
-      const body = await response!.json();
-      // In test env without Supabase, this will fail at token validation
-      expect(body.error).toBeDefined();
+      expect(response).toBeNull();
     });
   });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-const { reviewPlaybookOutput } = require('./ragPipeline');
+import { reviewPlaybookOutput } from './previewPlaybook.js';
 
 describe('reviewPlaybookOutput (CJS)', () => {
 	it('returns arrays for chunks and embeddings', () => {

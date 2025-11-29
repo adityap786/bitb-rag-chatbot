@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { reviewPlaybookOutput } from './ragPipeline.js';
+import { reviewPlaybookOutput } from './previewPlaybook.js';
 
 describe('reviewPlaybookOutput (ESM)', () => {
 	it('returns arrays for chunks and embeddings', () => {

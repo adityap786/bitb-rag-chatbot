@@ -23,6 +23,6 @@ registerToolHandler('update_settings', handleUpdateSettings);
 
 export const runtime = 'nodejs';
 
-export async function POST(request: NextRequest) {
+export async function POST(request: any, context: { params: Promise<{}> }) {
   return routeMCPRequest(request);
 }

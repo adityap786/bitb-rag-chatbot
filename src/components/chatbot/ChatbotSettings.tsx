@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ChatbotConfig } from "@/types/chatbot";
+import type { ChatbotConfig } from "@/types/chatbot";
 import { Separator } from "@/components/ui/separator";
 
 interface ChatbotSettingsProps {
@@ -43,7 +43,7 @@ export const ChatbotSettings = ({ config, onConfigChange, onClose }: ChatbotSett
     if (newUrl.trim()) {
       setLocalConfig({
         ...localConfig,
-        indexedUrls: [...localConfig.indexedUrls, newUrl.trim()],
+        indexedUrls: [...(localConfig.indexedUrls || []), newUrl.trim()],
       });
       setNewUrl("");
     }
@@ -52,7 +52,7 @@ export const ChatbotSettings = ({ config, onConfigChange, onClose }: ChatbotSett
   const handleRemoveUrl = (index: number) => {
     setLocalConfig({
       ...localConfig,
-      indexedUrls: localConfig.indexedUrls.filter((_, i) => i !== index),
+      indexedUrls: (localConfig.indexedUrls || []).filter((_, i) => i !== index),
     });
   };
 
@@ -380,7 +380,7 @@ export const ChatbotSettings = ({ config, onConfigChange, onClose }: ChatbotSett
                   </Button>
                 </div>
                 <div className="space-y-2 mt-3">
-                  {localConfig.indexedUrls.map((url, index) => (
+                  {(localConfig.indexedUrls || []).map((url, index) => (
                     <div
                       key={index}
                       className="flex items-center justify-between p-2 bg-zinc-50 dark:bg-zinc-800/50 rounded-lg"
@@ -396,7 +396,7 @@ export const ChatbotSettings = ({ config, onConfigChange, onClose }: ChatbotSett
                       </Button>
                     </div>
                   ))}
-                  {localConfig.indexedUrls.length === 0 && (
+                  {(localConfig.indexedUrls || []).length === 0 && (
                     <p className="text-sm text-muted-foreground text-center py-4">
                       No URLs added yet
                     </p>
@@ -421,9 +421,9 @@ export const ChatbotSettings = ({ config, onConfigChange, onClose }: ChatbotSett
                     console.log("Documents:", e.target.files);
                   }}
                 />
-                {localConfig.uploadedDocuments.length > 0 && (
+                {(localConfig.uploadedDocuments || []).length > 0 && (
                   <div className="space-y-2 mt-3">
-                    {localConfig.uploadedDocuments.map((doc, index) => (
+                    {(localConfig.uploadedDocuments || []).map((doc, index) => (
                       <div
                         key={index}
                         className="flex items-center justify-between p-2 bg-zinc-50 dark:bg-zinc-800/50 rounded-lg"

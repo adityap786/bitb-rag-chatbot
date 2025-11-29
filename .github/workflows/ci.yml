@@ -1,0 +1,60 @@
+name: Production CI/CD
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+      - name: Run unit/integration tests
+        run: npm run test
+      - name: Run Playwright E2E tests
+        run: npx playwright install && npx playwright test
+      - name: Build production assets
+        run: npm run build
+
+  widget-release:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate SRI hash
+        run: pwsh scripts/generate-sri-hash.ps1 -filePath public/bitb-widget.js
+      - name: Purge CDN cache
+        run: pwsh scripts/purge-cdn-cache.ps1 -cdnUrl ${{ secrets.CDN_URL }} -apiToken ${{ secrets.CDN_API_TOKEN }}
+      - name: Update integration docs
+        run: echo "Update docs/INTEGRATION_SNIPPETS.md with new SRI hash and CDN path"
+      - name: Deploy to CDN
+        run: echo "Deploy widget to CDN (add your deployment step here)"
+
+  security-audit:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run SAST (static analysis)
+        run: npx eslint . --ext .ts,.tsx,.js,.jsx
+      - name: Check secrets
+        run: echo "Rotate secrets and API keys before launch (manual or automated)"
+      - name: Audit new endpoints
+        run: echo "Audit /api/revoke-token, /api/verify-token, /api/metrics for authentication and rate limiting"
+
+  monitoring:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Export Prometheus metrics
+        run: curl -H "x-api-key:${{ secrets.METRICS_API_KEY }}" https://your-domain.com/api/metrics > metrics.txt
+      - name: Upload metrics to monitoring
+        run: echo "Integrate with Prometheus/Grafana (add your integration step here)"

@@ -153,52 +153,50 @@ describe('Rate Limiting', () => {
   });
 
   describe('checkRateLimit', () => {
-    it('allows requests under limit', () => {
+    it('allows requests under limit', async () => {
       const config = {
         max_requests: 5,
         window_ms: 60000,
         identifier_type: 'tenant' as const,
       };
 
-      const result1 = checkRateLimit('test-tenant', config);
+      const result1 = await Promise.resolve(checkRateLimit('test-tenant', config));
       expect(result1.allowed).toBe(true);
       expect(result1.remaining).toBe(4);
 
-      const result2 = checkRateLimit('test-tenant', config);
+      const result2 = await Promise.resolve(checkRateLimit('test-tenant', config));
       expect(result2.allowed).toBe(true);
       expect(result2.remaining).toBe(3);
     });
 
-    it('blocks requests over limit', () => {
+    it('blocks requests over limit', async () => {
       const config = {
         max_requests: 2,
         window_ms: 60000,
         identifier_type: 'tenant' as const,
       };
+      await Promise.resolve(checkRateLimit('test-tenant', config)); // 1st request
+      await Promise.resolve(checkRateLimit('test-tenant', config)); // 2nd request
 
-      checkRateLimit('test-tenant', config); // 1st request
-      checkRateLimit('test-tenant', config); // 2nd request
-
-      const result = checkRateLimit('test-tenant', config); // 3rd request
+      const result = await Promise.resolve(checkRateLimit('test-tenant', config)); // 3rd request
       expect(result.allowed).toBe(false);
       expect(result.remaining).toBe(0);
       expect(result.retry_after_ms).toBeGreaterThan(0);
     });
 
-    it('isolates rate limits by identifier', () => {
+    it('isolates rate limits by identifier', async () => {
       const config = {
         max_requests: 2,
         window_ms: 60000,
         identifier_type: 'tenant' as const,
       };
-
-      checkRateLimit('tenant-a', config);
-      checkRateLimit('tenant-a', config);
-      const resultA = checkRateLimit('tenant-a', config);
+      await Promise.resolve(checkRateLimit('tenant-a', config));
+      await Promise.resolve(checkRateLimit('tenant-a', config));
+      const resultA = await Promise.resolve(checkRateLimit('tenant-a', config));
       expect(resultA.allowed).toBe(false);
 
       // Different tenant should have separate limit
-      const resultB = checkRateLimit('tenant-b', config);
+      const resultB = await Promise.resolve(checkRateLimit('tenant-b', config));
       expect(resultB.allowed).toBe(true);
     });
 
@@ -209,16 +207,16 @@ describe('Rate Limiting', () => {
         identifier_type: 'tenant' as const,
       };
 
-      const result1 = checkRateLimit('test-tenant', config);
+      const result1 = await Promise.resolve(checkRateLimit('test-tenant', config));
       expect(result1.allowed).toBe(true);
 
-      const result2 = checkRateLimit('test-tenant', config);
+      const result2 = await Promise.resolve(checkRateLimit('test-tenant', config));
       expect(result2.allowed).toBe(false);
 
       // Wait for refill
       await new Promise(resolve => setTimeout(resolve, 150));
 
-      const result3 = checkRateLimit('test-tenant', config);
+      const result3 = await Promise.resolve(checkRateLimit('test-tenant', config));
       expect(result3.allowed).toBe(true);
     });
   });

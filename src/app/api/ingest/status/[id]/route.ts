@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(
-  request: NextRequest,
+  request: any,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -22,32 +22,38 @@ export async function GET(
       );
     }
 
-    // TODO: Fetch job status from database
-    // const job = await db.ingestionJob.findUnique({
-    //   where: { jobId: id }
-    // });
-    //
-    // if (!job) {
-    //   return NextResponse.json(
-    //     { error: 'Job not found' },
-    //     { status: 404 }
-    //   );
-    // }
+    // Fetch job status from Supabase
+    const supabaseUrl = process.env.SUPABASE_URL!;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Mock response for now
-    const mockStatuses = ['queued', 'processing', 'completed', 'failed'];
-    const mockStatus = mockStatuses[Math.floor(Math.random() * mockStatuses.length)];
+    // Query job by job_id
+    const { data: job, error: dbError } = await supabase
+      .from('ingestion_jobs')
+      .select('*')
+      .eq('job_id', id)
+      .single();
 
+    if (dbError || !job) {
+      return NextResponse.json(
+        { error: 'Job not found' },
+        { status: 404 }
+      );
+    }
+
+    // Return all relevant fields
     const response = {
-      job_id: id,
-      status: mockStatus,
-      progress: mockStatus === 'completed' ? 100 : mockStatus === 'processing' ? 65 : 0,
-      pages_processed: mockStatus === 'completed' ? 20 : mockStatus === 'processing' ? 13 : 0,
-      total_pages: 20,
-      chunks_created: mockStatus === 'completed' ? 245 : mockStatus === 'processing' ? 156 : 0,
-      error: mockStatus === 'failed' ? 'Failed to crawl website: Connection timeout' : null,
-      started_at: new Date(Date.now() - 2 * 60 * 1000).toISOString(), // 2 minutes ago
-      completed_at: mockStatus === 'completed' ? new Date().toISOString() : null
+      job_id: job.job_id,
+      status: job.status,
+      progress: job.progress,
+      pages_processed: job.pages_processed,
+      total_pages: job.total_pages,
+      chunks_created: job.chunks_created,
+      error: job.error,
+      started_at: job.started_at,
+      completed_at: job.completed_at,
+      index_path: job.index_path
     };
 
     return NextResponse.json(response);

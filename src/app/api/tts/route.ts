@@ -33,7 +33,7 @@ function getClientIp(request: NextRequest) {
   return "unknown";
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(request: any, context: { params: Promise<{}> }) {
   try {
     const body = await request.json();
     const text = body?.text;

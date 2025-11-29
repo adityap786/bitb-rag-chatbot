@@ -22,7 +22,7 @@ import type { MCPToolRequest, MCPToolResponse, MCPToolName } from './types';
  */
 export async function routeMCPRequest(
   request: NextRequest
-): Promise<NextResponse<MCPToolResponse>> {
+): Promise<NextResponse> {
   const startTime = Date.now();
 
   try {
@@ -65,7 +65,7 @@ export async function routeMCPRequest(
     // Validate tenant context (security check)
     const tenantValidation = await validateTenantContext(request);
     if (tenantValidation) {
-      return tenantValidation as NextResponse<MCPToolResponse>;
+      return tenantValidation as NextResponse;
     }
 
     // GUARDRAIL: Rate limiting (per-tenant, per-tool)
@@ -78,7 +78,7 @@ export async function routeMCPRequest(
 
       const rateLimitResponse = await rateLimitMiddleware(request, rateLimitConfig, identifier);
       if (rateLimitResponse) {
-        return rateLimitResponse as NextResponse<MCPToolResponse>;
+        return rateLimitResponse as NextResponse;
       }
     }
 

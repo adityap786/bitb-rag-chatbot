@@ -1,0 +1,7 @@
+{
+  "query": "sum(rate(http_request_errors_total[5m])) / sum(rate(http_requests_total[5m]))",
+  "threshold": 0.01,
+  "comparator": "<",
+  "lookbackSec": 300,
+  "stepSec": 15
+}

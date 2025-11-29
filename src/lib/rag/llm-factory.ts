@@ -1,5 +1,4 @@
-import type { ChatOpenAI } from "@langchain/openai";
-import { HumanMessage } from "@langchain/core/messages";
+
 
 // Generic LLM adapter (keeps a minimal shape used in this app)
 export interface LLMAdapter {
@@ -7,7 +6,7 @@ export interface LLMAdapter {
 }
 
 const DEFAULT_LLM_PROVIDER = process.env.BITB_LLM_PROVIDER || process.env.LLM_PROVIDER || "groq";
-const DEFAULT_LLM_MODEL = process.env.BITB_LLM_MODEL || process.env.LLM_MODEL || "llama-3.1-70b-instruct";
+const DEFAULT_LLM_MODEL = process.env.BITB_LLM_MODEL || process.env.LLM_MODEL || "llama-3.3-70b-versatile";
 
 /**
  * Groq adapter - simple OpenAI-compatible chat call using global fetch.
@@ -55,31 +54,20 @@ class GroqAdapter implements LLMAdapter {
   }
 }
 
-/**
- * Wraps LangChain ChatOpenAI so callers can treat it as a common LLMAdapter.
- */
-class LangChainOpenAIAdapter implements LLMAdapter {
-  llm: ChatOpenAI;
 
-  constructor(llm: ChatOpenAI) {
-    this.llm = llm;
-  }
-
-  async invoke(prompt: string): Promise<string> {
-    const response = await this.llm.invoke([new HumanMessage(prompt)]);
-    const content = Array.isArray(response.content)
-      ? response.content.map((chunk) => chunk.toString()).join("")
-      : response.content;
-    return typeof content === "string" ? content : JSON.stringify(content);
-  }
-}
 
 /**
  * Factory that returns an LLMAdapter instance based on environment config.
  * It supports `groq` and `openai` providers (others may be added later).
  */
 export async function createLlm(options?: { provider?: string; model?: string }): Promise<LLMAdapter | null> {
-  const provider = (options?.provider || process.env.BITB_LLM_PROVIDER || process.env.LLM_PROVIDER || DEFAULT_LLM_PROVIDER).toLowerCase();
+  // Determine provider with clear precedence:
+  // 1) explicit option, 2) env var BITB_LLM_PROVIDER / LLM_PROVIDER, 3) if OPENAI_API_KEY exists prefer 'openai', 4) fallback DEFAULT_LLM_PROVIDER
+  let provider = options?.provider || process.env.BITB_LLM_PROVIDER || process.env.LLM_PROVIDER;
+  if (!provider) {
+    provider = process.env.OPENAI_API_KEY ? 'openai' : DEFAULT_LLM_PROVIDER;
+  }
+  provider = provider.toLowerCase();
   const model = options?.model || process.env.BITB_LLM_MODEL || DEFAULT_LLM_MODEL;
 
   if (provider === "groq") {
@@ -93,22 +81,16 @@ export async function createLlm(options?: { provider?: string; model?: string })
   }
 
   if (provider === "openai" || provider === "openrouter") {
-    // Use LangChain ChatOpenAI - it will prefer OPENAI_API_KEY
+    // Use LlamaIndex OpenAI adapter instead of LangChain
     if (!process.env.OPENAI_API_KEY) {
       console.warn("[LLM] OpenAI selected but OPENAI_API_KEY is not set");
       return null;
     }
-
     try {
-      const mod = await import("@langchain/openai");
-      const llm = new mod.ChatOpenAI({
-        modelName: model,
-        temperature: 0.2,
-        maxRetries: 2,
-      });
-      return new LangChainOpenAIAdapter(llm as unknown as ChatOpenAI);
+      const { createLlamaIndexLlm } = await import("./llamaindex-llm-factory");
+      return await createLlamaIndexLlm({ provider: "openai", model });
     } catch (err) {
-      console.warn("[LLM] Failed to initialize ChatOpenAI", err);
+      console.warn("[LLM] Failed to initialize LlamaIndex OpenAI", err);
       return null;
     }
   }

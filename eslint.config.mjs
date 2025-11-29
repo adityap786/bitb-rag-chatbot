@@ -1,8 +1,9 @@
 import next from 'eslint-config-next';
 
-export default [
+const config = [
   ...next,
   {
+    ignores: ['public/', 'node_modules/', '.next/'],
     rules: {
       'react/no-unescaped-entities': 'off',
       '@next/next/no-img-element': 'off',
@@ -19,5 +20,15 @@ export default [
       'import/no-cycle': 'error',
       'import/no-useless-path-segments': 'error',
     },
+    settings: {
+      'import/resolver': {
+        typescript: {},
+        node: {
+          extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
+        },
+      },
+    },
   },
 ];
+
+export default config;
