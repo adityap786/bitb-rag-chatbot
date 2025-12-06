@@ -10,7 +10,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
-import { logger } from '../observability/logger.js';
+import { logger } from '../observability/logger';
 import { AuditLogger, AuditEventType } from './audit-logging.js';
 
 /**

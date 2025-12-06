@@ -6,6 +6,12 @@
  */
 
 import { MCPToolDefinition, MCPToolName } from './types';
+import {
+  handleRagQuery,
+  handleIngestDocuments,
+  handleGetTrialStatus,
+  handleUpdateSettings
+} from './handlers';
 
 /**
  * JSON Schema for rag_query parameters
@@ -168,8 +174,8 @@ export const MCP_TOOLS: Record<MCPToolName, MCPToolDefinition> = {
       max_calls_per_minute: 20,
       max_calls_per_hour: 200,
     },
+    handler: handleRagQuery,
   },
-  
   ingest_documents: {
     name: 'ingest_documents',
     description: 'Add documents to tenant knowledge base with automatic chunking and embedding',
@@ -180,8 +186,8 @@ export const MCP_TOOLS: Record<MCPToolName, MCPToolDefinition> = {
       max_calls_per_minute: 5,
       max_calls_per_hour: 50,
     },
+    handler: handleIngestDocuments,
   },
-  
   get_trial_status: {
     name: 'get_trial_status',
     description: 'Retrieve trial information, usage statistics, and remaining quota',
@@ -192,8 +198,8 @@ export const MCP_TOOLS: Record<MCPToolName, MCPToolDefinition> = {
       max_calls_per_minute: 30,
       max_calls_per_hour: 300,
     },
+    handler: handleGetTrialStatus,
   },
-  
   update_settings: {
     name: 'update_settings',
     description: 'Update chatbot configuration including theme, display name, and messages',
@@ -204,6 +210,7 @@ export const MCP_TOOLS: Record<MCPToolName, MCPToolDefinition> = {
       max_calls_per_minute: 10,
       max_calls_per_hour: 100,
     },
+    handler: handleUpdateSettings,
   },
 };
 

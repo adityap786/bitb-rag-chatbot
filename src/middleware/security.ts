@@ -4,7 +4,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
-import { logger } from '../lib/observability/logger.js';
+import { logger } from '../lib/observability/logger';
 
 // 1. Tenant Isolation Middleware
 export function enforceTenantIsolation(req: Request, res: Response, next: NextFunction) {

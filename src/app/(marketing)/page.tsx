@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useReducedMotion } from "framer-motion";
 import { ArrowRight, BrainCircuit, CircuitBoard, Headphones, LineChart, Lock, MessageCircle, ServerCog, ShieldCheck, LogIn, UserPlus, FileText, Briefcase, Phone } from "lucide-react";
+
 import dynamic from "next/dynamic";
+import BusinessApplicationsSection from "./BusinessApplicationsSection";
 
 const TrialOnboardingWizardGSAP = dynamic(() => import("@/components/trial/TrialOnboardingWizardGSAP"), { ssr: false });
 
@@ -192,6 +194,11 @@ export default function HomePage() {
         <div className="my-16">
           <TrialOnboardingWizardGSAP />
         </div>
+
+        {/* Business Applications Section (Third Section) */}
+        <section className="my-16">
+          <BusinessApplicationsSection />
+        </section>
       <section className="rounded-3xl border border-white/10 bg-black/70 p-8 md:p-12 shadow-[0_0_140px_-45px_rgba(255,255,255,0.65)] backdrop-blur">
         <div className="grid gap-10 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="flex flex-col gap-6">

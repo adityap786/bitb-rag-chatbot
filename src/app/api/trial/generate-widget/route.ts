@@ -19,11 +19,6 @@ function verifyToken(token: string): { tenantId: string } | null {
     return null;
   }
 }
-
-  const hash = createHash('sha384').update(content).digest('base64');
-  return `sha384-${hash}`;
-}
-
 // SRI hash for widget integrity (not embedding-related)
 function computeSRI(content: string): string {
   const hash = createHash('sha384').update(content).digest('base64');

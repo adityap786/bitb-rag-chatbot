@@ -132,10 +132,38 @@ export interface UpdateSettingsResponse extends MCPToolResponse {
  * Maps tool names to their parameter/response types
  */
 export type MCPToolName = 
+  // Core tools
   | 'rag_query'
   | 'ingest_documents'
   | 'get_trial_status'
-  | 'update_settings';
+  | 'update_settings'
+  // E-com tools
+  | 'catalog_ingestion'
+  | 'payment_link'
+  | 'inventory_sync'
+  | 'product_detail'
+  | 'order_tracking'
+  | 'returns_and_refunds'
+  | 'abandoned_cart_recovery'
+  | 'fraud_check'
+  | 'product_review_summary'
+  | 'personalized_recommendation'
+  | 'size_and_fit_recommender'
+  | 'bundle_and_bogo_engine'
+  | 'check_availability_realtime'
+  | 'add_to_cart'
+  | 'initiate_checkout'
+  | 'subscription_and_replenishment'
+  | 'explain_recommendation'
+  | 'website_navigation'
+  | 'compare_price_across_sellers'
+  | 'analytics_insight_generator'
+  // Service tools
+  | 'book_appointment'
+  | 'qualify_lead'
+  | 'escalate_to_human'
+  | 'check_availability'
+  | 'service_analytics';
 
 /**
  * Tool parameter type mapping
@@ -170,4 +198,5 @@ export interface MCPToolDefinition {
     max_calls_per_minute: number;
     max_calls_per_hour: number;
   };
+  handler: (req: MCPToolRequest) => Promise<MCPToolResponse> | MCPToolResponse;
 }

@@ -897,12 +897,6 @@ export interface MLRecommendationEngineConfig {
   maxCandidates: number;
 }
 
-  tenantId: 'default',
-  embeddingModel: 'text-embedding-ada-002',
-  embeddingDimensions: 768,
-  maxCandidates: 50,
-};
-
 const DEFAULT_ML_CONFIG: MLRecommendationEngineConfig = {
   tenantId: 'default',
   embeddingModel: 'nomic-ai/nomic-embed-text-v1.5',

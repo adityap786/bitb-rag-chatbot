@@ -1,20 +1,3 @@
-      it('addDocumentsToTenant handles large batch inserts', async () => {
-        type TestDoc = { content: string; metadata: any };
-        const docs: TestDoc[] = Array.from({ length: 120 }, (_, i) => ({ content: `doc${i}`, metadata: {} }));
-        // @ts-expect-error: test mock type
-        const ids = await retriever.addDocumentsToTenant(VALID_TENANT, docs);
-        expect(Array.isArray(ids)).toBe(true);
-        expect(ids.length).toBe(docs.length);
-      });
-    it('getSupabaseRetriever throws or errors for invalid tenant', async () => {
-      await expect(retriever.getSupabaseRetriever('bad')).rejects.toThrow();
-      await expect(retriever.getSupabaseRetriever('')).rejects.toThrow();
-    });
-  it('addDocumentsToTenant throws or errors for invalid input', async () => {
-    // @ts-expect-error: intentionally invalid input
-    await expect(retriever.addDocumentsToTenant(VALID_TENANT, [{ metadata: {} }])).rejects.toThrow();
-    await expect(retriever.addDocumentsToTenant(VALID_TENANT, [])).rejects.toThrow();
-  });
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as retriever from '../../src/lib/rag/supabase-retriever';
 
@@ -105,6 +88,15 @@ describe('supabase-retriever (unit)', () => {
     }
   });
 
+  it('addDocumentsToTenant handles large batch inserts', async () => {
+    type TestDoc = { content: string; metadata: any };
+    const docs: TestDoc[] = Array.from({ length: 120 }, (_, i) => ({ content: `doc${i}`, metadata: {} }));
+    // @ts-expect-error: test mock type
+    const ids = await retriever.addDocumentsToTenant(VALID_TENANT, docs);
+    expect(Array.isArray(ids)).toBe(true);
+    expect(ids.length).toBe(docs.length);
+  });
+
   it('deleteTenantEmbeddings returns a number', async () => {
     const count = await retriever.deleteTenantEmbeddings(VALID_TENANT);
     expect(typeof count).toBe('number');
@@ -151,6 +143,17 @@ describe('supabase-retriever (unit)', () => {
       catch: function () { return this; },
     });
     await expect(retriever.getTenantEmbeddingCount(VALID_TENANT)).rejects.toThrow();
+  });
+
+  it('getSupabaseRetriever throws or errors for invalid tenant', async () => {
+    await expect(retriever.getSupabaseRetriever('bad')).rejects.toThrow();
+    await expect(retriever.getSupabaseRetriever('')).rejects.toThrow();
+  });
+
+  it('addDocumentsToTenant throws or errors for invalid input', async () => {
+    // @ts-expect-error: intentionally invalid input
+    await expect(retriever.addDocumentsToTenant(VALID_TENANT, [{ metadata: {} }])).rejects.toThrow();
+    await expect(retriever.addDocumentsToTenant(VALID_TENANT, [])).rejects.toThrow();
   });
 
   it('getBitbRag throws deprecation error', async () => {

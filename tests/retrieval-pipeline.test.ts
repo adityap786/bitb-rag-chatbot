@@ -14,7 +14,14 @@ describe('RetrievalPipeline', () => {
     const doc = { content: 'test doc', metadata: { foo: 'bar' } };
     const chunks = await pipeline.ingest(doc);
     expect(chunker.parse).toHaveBeenCalledWith(doc);
-    expect(chunks).toEqual(mockChunks);
+    // The retrieval pipeline enriches chunks; ensure content matches the chunker output
+    expect(chunks.map(c => c.content)).toEqual(mockChunks.map(c => c.content));
+    // Ensure each enriched chunk has tenant set and embedding array when embedding service is available
+    for (const c of chunks) {
+      expect(c).toHaveProperty('metadata');
+      expect(c.metadata).toHaveProperty('tenant_id');
+      expect(c.metadata).toHaveProperty('embedding');
+    }
   });
 
   it('retrieves using hybrid search', async () => {

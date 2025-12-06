@@ -1,5 +1,5 @@
 import { upstashRedis } from '../redis-client-upstash';
-import { logger } from '../observability/logger.js';
+import { logger } from '../observability/logger';
 
 
 export interface RedisLangCacheOptions {

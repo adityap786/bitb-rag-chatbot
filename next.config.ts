@@ -9,9 +9,6 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   images: {
     remotePatterns: [
       {
@@ -25,13 +22,8 @@ const nextConfig: NextConfig = {
     ],
   },
   outputFileTracingRoot: path.resolve(__dirname, '../../'),
-  turbopack: {
-    rules: {
-      "*.{jsx,tsx}": {
-        loaders: [LOADER]
-      }
-    }
-  }
+  // Note: custom Turbopack rules and `eslint` option removed for Next 16 compatibility.
+  // If you need custom loaders, reintroduce them after verifying Turbopack stability.
 };
 
 export default nextConfig;

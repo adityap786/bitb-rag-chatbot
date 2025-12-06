@@ -179,6 +179,88 @@ vi.mock('ioredis', () => {
 	return { default: MockRedis };
 });
 
+	// ========================================================
+	// GLOBAL MOCKS: LangCache, Groq, LLM and Tenant Config Loader
+	// Provide deterministic, fast responses for tests that need LLM or langcache
+	// ========================================================
+
+	// LangCache SaaS API: return empty search and successful set by default
+	vi.mock('@/lib/langcache-api', () => ({
+		langCacheSearch: vi.fn(async (prompt: string) => ({ response: null })),
+		langCacheSet: vi.fn(async (_prompt: string, _response: any) => ({ ok: true }))
+	}));
+
+	// GROQ SDK (default GroqClient wrapper) — simple fake that returns deterministic completions
+	vi.mock('groq-sdk', () => {
+		class MockGroq {
+			chat: any;
+			constructor(_opts?: any) {
+				this.chat = {
+					completions: {
+						create: vi.fn(async (opts: any) => ({
+							choices: [{ message: { content: `fake completion for model=${opts.model || 'default'}` } }],
+							usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+							model: opts.model || 'test-model',
+						})),
+					},
+				};
+			}
+		}
+		return { default: MockGroq };
+	});
+
+	// @ai-sdk/groq createGroq wrapper — returns a language model that supports `complete` (compat)
+	vi.mock('@ai-sdk/groq', () => ({
+		createGroq: () => {
+			return (model: string) => ({
+				complete: vi.fn(async (_opts: any) => ({ text: `fake: ${model}`, usage: {} })),
+				chat: { completions: { create: vi.fn(async (_opts: any) => ({ choices: [{ message: { content: `fake chat: ${model}` } }], usage: {}, model })) } },
+				model,
+			});
+		}
+	}));
+
+	// Tenant config loader: return a minimal valid config so tests don't need files on disk
+	vi.mock('@/lib/config/tenant-config-loader', () => ({
+		getTenantConfig: (tenantId: string) => ({
+			id: tenantId || 'tn_testtenant0000000000000000000000',
+			name: 'Test Tenant',
+			vector_store: 'supabase',
+			embedding_provider: 'nomic',
+			embedding_model: 'nomic-ai/nomic-embed-text-v1.5',
+			chunk_size: 1024,
+			chunk_overlap: 128,
+			features: {},
+			prompts: {},
+		}),
+		reloadTenantConfig: vi.fn(),
+		clearTenantConfigCache: vi.fn(),
+	}));
+
+	// Default embedding generator mock to return 768-dim vectors for tests unless explicitly mocked per-file
+	vi.mock('@/lib/trial/embeddings', () => ({
+		generateEmbeddings: vi.fn(async (texts: string[]) => {
+			return texts.map(() => Array(768).fill(0.5));
+		}),
+	}));
+
+	// LlamaIndex embedding wrapper mock
+	vi.mock('@/lib/rag/llamaindex-embeddings', () => ({
+		LlamaIndexEmbeddingService: {
+			getInstance: () => ({
+				embed: vi.fn(async (_text: string) => Array(768).fill(0.5)),
+				embedBatch: vi.fn(async (texts: string[]) => texts.map(() => Array(768).fill(0.5))),
+			}),
+		},
+	}));
+
+	// Mock the LLM factory to return a deterministic adapter that does not hit network
+	vi.mock('@/lib/rag/llm-factory', () => ({
+		createLlm: vi.fn(async (_opts?: any) => ({
+			invoke: vi.fn(async (prompt: string) => `mocked llm response for: ${String(prompt).slice(0, 100)}`),
+		})),
+	}));
+
 // Mock `bullmq` with an in-memory queue so tests can enqueue and observe job status
 vi.mock('bullmq', () => {
 	type JobRecord = {

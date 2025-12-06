@@ -10,7 +10,7 @@
  */
 
 import { createClient, RealtimeChannel } from '@supabase/supabase-js';
-import { logger } from '../observability/logger.js';
+import { logger } from '../observability/logger';
 import { logAuditEvent } from '../security/audit-logging.js';
 
 export type AgentStatus = 'available' | 'busy' | 'offline';
