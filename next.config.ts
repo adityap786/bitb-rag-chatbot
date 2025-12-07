@@ -17,13 +17,7 @@ const nextConfig: NextConfig = {
     ],
   },
   outputFileTracingRoot: path.resolve(__dirname, '../../'),
-  turbopack: {
-    rules: {
-      "*.{jsx,tsx}": {
-        loaders: [LOADER]
-      }
-    }
-  }
+  // Turbopack disabled - use webpack instead to avoid Windows file access issues
 };
 
 export default nextConfig;
