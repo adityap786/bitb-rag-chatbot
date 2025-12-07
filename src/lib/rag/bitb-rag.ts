@@ -3,7 +3,6 @@ import { promises as fs } from "fs";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { StringOutputParser } from "@langchain/core/output_parsers";
 import { pipeline } from "@xenova/transformers";
-import type { ChatOpenAI } from "@langchain/openai";
 import { createLlm } from "./llm-factory";
 
 export interface RagSource {
@@ -51,7 +50,7 @@ type RankedChunk = {
   score: number;
 };
 
-const MODEL_NAME = process.env.BITB_EMBEDDING_MODEL || "Xenova/all-MiniLM-L6-v2";
+const MODEL_NAME = process.env.BITB_EMBEDDING_MODEL || "Xenova/all-mpnet-base-v2";
 const DEFAULT_LLM_MODEL = process.env.BITB_LLM_MODEL || "gpt-4o-mini";
 const CHUNK_SIZE = 800;
 const CHUNK_OVERLAP = 120;

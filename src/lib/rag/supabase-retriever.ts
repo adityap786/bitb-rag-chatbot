@@ -13,15 +13,16 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 import { SupabaseVectorStore } from "@langchain/community/vectorstores/supabase";
-import { OpenAIEmbeddings } from "@langchain/openai";
+import { HuggingFaceInferenceEmbeddings } from "@langchain/community/embeddings/hf";
 import { Document } from "@langchain/core/documents";
 
 // Environment validation
 function validateEnv() {
+  const huggingfaceApiKey = process.env.HUGGINGFACE_API_KEY || process.env.HUGGINGFACEHUB_API_KEY;
   const required = {
     SUPABASE_URL: process.env.SUPABASE_URL,
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    HUGGINGFACE_API_KEY: huggingfaceApiKey,
   };
 
   const missing = Object.entries(required)
@@ -34,7 +35,11 @@ function validateEnv() {
     );
   }
 
-  return required as Record<string, string>;
+  return {
+    SUPABASE_URL: required.SUPABASE_URL!,
+    SUPABASE_SERVICE_ROLE_KEY: required.SUPABASE_SERVICE_ROLE_KEY!,
+    HUGGINGFACE_API_KEY: required.HUGGINGFACE_API_KEY!,
+  };
 }
 
 /**
@@ -102,10 +107,11 @@ export async function getSupabaseRetriever(tenantId: string, options?: {
 
   const client = await createTenantIsolatedClient(tenantId);
   const env = validateEnv();
+  const embeddingModel = process.env.BITB_EMBEDDING_MODEL || "sentence-transformers/all-mpnet-base-v2";
 
-  const embeddings = new OpenAIEmbeddings({
-    openAIApiKey: env.OPENAI_API_KEY,
-    modelName: "text-embedding-ada-002",
+  const embeddings = new HuggingFaceInferenceEmbeddings({
+    apiKey: env.HUGGINGFACE_API_KEY,
+    model: embeddingModel,
   });
 
   // Create vector store with custom query function that includes tenant filter
@@ -168,10 +174,11 @@ export async function addDocumentsToTenant(
 
   const client = await createTenantIsolatedClient(tenantId);
   const env = validateEnv();
+  const embeddingModel = process.env.BITB_EMBEDDING_MODEL || "sentence-transformers/all-mpnet-base-v2";
 
-  const embeddings = new OpenAIEmbeddings({
-    openAIApiKey: env.OPENAI_API_KEY,
-    modelName: "text-embedding-ada-002",
+  const embeddings = new HuggingFaceInferenceEmbeddings({
+    apiKey: env.HUGGINGFACE_API_KEY,
+    model: embeddingModel,
   });
 
   // Tag documents with tenant_id in metadata

@@ -87,7 +87,7 @@ const playbookEntries = [
     title: "Ingestion Pipeline",
     source: "https://bitb.ltd/docs/ingestion",
     content:
-      "Our ingestion pipeline:\n\n1. Crawl or upload: PDFs, DOCX, TXT, HTML, and sitemap aware URLs.\n2. Clean: remove navigation noise, detect sections, preserve tables.\n3. Chunk: 750 token windows with semantic overlap to boost recall.\n4. Embed: sentence-transformer MiniLM locally or Hugging Face fallback.\n5. Store: FAISS per trial with cosine similarity and metadata filters.\n\nLangChain orchestrates retrieval plus answer synthesis every time you ask a question.",
+      "Our ingestion pipeline:\n\n1. Crawl or upload: PDFs, DOCX, TXT, HTML, and sitemap aware URLs.\n2. Clean: remove navigation noise, detect sections, preserve tables.\n3. Chunk: 750 token windows with semantic overlap to boost recall.\n4. Embed: sentence-transformer mpnet (quantized) locally or Hugging Face fallback.\n5. Store: FAISS per trial with cosine similarity and metadata filters.\n\nLangChain orchestrates retrieval plus answer synthesis every time you ask a question.",
   },
   {
     id: "security",

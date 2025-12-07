@@ -1,6 +1,3 @@
-import type { ChatOpenAI } from "@langchain/openai";
-import { HumanMessage } from "@langchain/core/messages";
-
 // Generic LLM adapter (keeps a minimal shape used in this app)
 export interface LLMAdapter {
   invoke(input: string): Promise<string>;
@@ -56,64 +53,24 @@ class GroqAdapter implements LLMAdapter {
 }
 
 /**
- * Wraps LangChain ChatOpenAI so callers can treat it as a common LLMAdapter.
- */
-class LangChainOpenAIAdapter implements LLMAdapter {
-  llm: ChatOpenAI;
-
-  constructor(llm: ChatOpenAI) {
-    this.llm = llm;
-  }
-
-  async invoke(prompt: string): Promise<string> {
-    const response = await this.llm.invoke([new HumanMessage(prompt)]);
-    const content = Array.isArray(response.content)
-      ? response.content.map((chunk) => chunk.toString()).join("")
-      : response.content;
-    return typeof content === "string" ? content : JSON.stringify(content);
-  }
-}
-
-/**
  * Factory that returns an LLMAdapter instance based on environment config.
- * It supports `groq` and `openai` providers (others may be added later).
+ * Currently supports Groq (OpenAI-compatible endpoint).
  */
 export async function createLlm(options?: { provider?: string; model?: string }): Promise<LLMAdapter | null> {
   const provider = (options?.provider || process.env.BITB_LLM_PROVIDER || process.env.LLM_PROVIDER || DEFAULT_LLM_PROVIDER).toLowerCase();
   const model = options?.model || process.env.BITB_LLM_MODEL || DEFAULT_LLM_MODEL;
 
-  if (provider === "groq") {
-    const apiKey = process.env.GROQ_API_KEY;
-    const baseUrl = process.env.GROQ_BASE_URL || "https://api.groq.com/openai/v1";
-    if (!apiKey) {
-      console.warn("[LLM] GROQ selected but GROQ_API_KEY is not set");
-      return null;
-    }
-    return new GroqAdapter(model, apiKey, baseUrl);
+  if (provider !== "groq") {
+    console.warn(`[LLM] Provider '${provider}' is unsupported; falling back to Groq.`);
   }
 
-  if (provider === "openai" || provider === "openrouter") {
-    // Use LangChain ChatOpenAI - it will prefer OPENAI_API_KEY
-    if (!process.env.OPENAI_API_KEY) {
-      console.warn("[LLM] OpenAI selected but OPENAI_API_KEY is not set");
-      return null;
-    }
+  const apiKey = process.env.GROQ_API_KEY;
+  const baseUrl = process.env.GROQ_BASE_URL || "https://api.groq.com/openai/v1";
 
-    try {
-      const mod = await import("@langchain/openai");
-      const llm = new mod.ChatOpenAI({
-        modelName: model,
-        temperature: 0.2,
-        maxRetries: 2,
-      });
-      return new LangChainOpenAIAdapter(llm as unknown as ChatOpenAI);
-    } catch (err) {
-      console.warn("[LLM] Failed to initialize ChatOpenAI", err);
-      return null;
-    }
+  if (!apiKey) {
+    console.warn("[LLM] GROQ selected but GROQ_API_KEY is not set");
+    return null;
   }
 
-  // Unknown provider
-  console.warn(`[LLM] Unknown provider: ${provider}`);
-  return null;
+  return new GroqAdapter(model, apiKey, baseUrl);
 }

@@ -38,7 +38,7 @@ const pipelineSteps = [
   {
     id: "02",
     title: "Embed",
-    blurb: "Run local MiniLM embeddings or swap to Hugging Face / OpenAI. No GPU required.",
+    blurb: "Run local mpnet embeddings (quantized) or swap to Hugging Face. No GPU required.",
     detail: "Embeddings land in FAISS with cosine ranking, cached per trial token for instant recall.",
   },
   {
