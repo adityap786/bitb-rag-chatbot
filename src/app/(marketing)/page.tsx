@@ -5,6 +5,12 @@ import Link from "next/link";
 import { useReducedMotion } from "framer-motion";
 import { ArrowRight, BrainCircuit, CircuitBoard, Headphones, LineChart, Lock, MessageCircle, ServerCog, ShieldCheck, LogIn, UserPlus, FileText, Briefcase, Phone } from "lucide-react";
 
+import dynamic from "next/dynamic";
+import BusinessApplicationsSection from "./BusinessApplicationsSection";
+import EnterpriseFeaturesSection from "./EnterpriseFeaturesSection";
+
+const TrialOnboardingWizardGSAP = dynamic(() => import("@/components/trial/TrialOnboardingWizardGSAP"), { ssr: false });
+
 const featureCards = [
   {
     title: "Embed in minutes",
@@ -38,7 +44,7 @@ const pipelineSteps = [
   {
     id: "02",
     title: "Embed",
-    blurb: "Run local mpnet embeddings (quantized) or swap to Hugging Face. No GPU required.",
+    blurb: "Run local MiniLM embeddings or swap to Hugging Face / OpenAI. No GPU required.",
     detail: "Embeddings land in FAISS with cosine ranking, cached per trial token for instant recall.",
   },
   {
@@ -184,6 +190,21 @@ export default function HomePage() {
           </nav>
         </div>
       </section>
+
+        {/* GSAP-powered Interactive Tenant Onboarding Wizard for 3-Day Trial */}
+        <div className="my-16">
+          <TrialOnboardingWizardGSAP />
+        </div>
+
+        {/* Business Applications Section (Third Section) */}
+        <section className="my-16">
+          <BusinessApplicationsSection />
+        </section>
+
+        {/* Enterprise Features Section (Security, Integrations, Results) */}
+        <section className="my-16">
+          <EnterpriseFeaturesSection />
+        </section>
 
       <section className="rounded-3xl border border-white/10 bg-black/70 p-8 md:p-12 shadow-[0_0_140px_-45px_rgba(255,255,255,0.65)] backdrop-blur">
         <div className="grid gap-10 lg:grid-cols-[1.2fr_0.8fr]">

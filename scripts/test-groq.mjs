@@ -16,7 +16,7 @@ const res = await fetch(url, {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
   },
-  body: JSON.stringify({ model: process.env.BITB_LLM_MODEL || 'llama-3.1-70b-instruct', messages: [{ role: 'user', content: prompt }] }),
+  body: JSON.stringify({ model: process.env.BITB_LLM_MODEL || 'mixtral-8x7b-32768', messages: [{ role: 'user', content: prompt }] }),
 });
 
 const data = await res.text();

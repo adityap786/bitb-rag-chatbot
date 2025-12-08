@@ -1,0 +1,52 @@
+
+# Example tenant config for LlamaIndex Phase 2
+# Place all tenant-specific settings, prompts, feature flags, and infra here.
+
+id: tn_example
+name: Example Tenant
+vector_store: pgvector  # or pgvector, milvus, weaviate
+embedding_provider: local  # or openai
+embedding_model: BAAI/bge-large-en-v1.5
+chunk_size: 1000
+chunk_overlap: 200
+features:
+  hybrid_search: true
+  rerank: false
+  enable_sync_jobs: false
+prompts:
+  greeting: "Welcome to Example Tenant!"
+  fallback: "Sorry, I don't have an answer for that."
+# MCP tool configuration (example)
+mcp_tools:
+  - name: "summarizer"
+    enabled: true
+    endpoint: "https://api.example.com/summarize"
+    params:
+      max_length: 256
+  - name: "entity_extractor"
+    enabled: false
+    endpoint: "https://api.example.com/entities"
+
+# Prompt versioning and advanced feature flags
+prompt_versions:
+  greeting:
+    v1: "Welcome to Example Tenant!"
+    v2: "Hello from Example Tenant, how can I help you today?"
+  fallback:
+    v1: "Sorry, I don't have an answer for that."
+    v2: "I'm not sure about that, but I'm learning more every day!"
+feature_flags:
+  enable_new_reranker: false
+  use_llamaindex_llm: true
+
+# CI/CD and rollout control
+rollout:
+  current_prompt_version: v2
+  staged_features:
+    - name: "enable_new_reranker"
+      rollout: 10% # rollout percentage
+    - name: "use_llamaindex_llm"
+      rollout: 100%
+  canary_users:
+    - user1@example.com
+    - user2@example.com

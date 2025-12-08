@@ -197,7 +197,14 @@ Your API routes should now connect to Supabase with tenant-isolated vector stora
 
 ## Production Considerations
 
-- **Connection Pooling**: Use Supabase connection pooler for high traffic
+- **Connection Pooling**: Use Supabase connection pooler (Supavisor/pgBouncer) for high traffic. Update your `.env.local` and `.env.example`:
+
+```bash
+# Example pooler endpoint
+SUPABASE_URL=postgres://dbuser:dbpass@db-pooler.supabase.co:6543/postgres
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
+```
+
 - **Indexes**: IVFFlat vector index is created with default lists=100 (tune based on data size)
 - **Backup**: Enable Point-in-Time Recovery (PITR) in Supabase dashboard
 - **Monitoring**: Set up alerts for RLS policy violations and query errors

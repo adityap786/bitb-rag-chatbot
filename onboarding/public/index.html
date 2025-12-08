@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>BitB Onboarding — Detect Platform</title>
+  <style>
+    body { font-family: system-ui, Arial; padding: 20px; }
+    input { padding: 6px; }
+    button { padding: 6px 10px; }
+    .candidate { margin-bottom: 8px; }
+    .error { color: red; }
+  </style>
+</head>
+<body>
+  <h1>Onboarding — Detect your site's platform</h1>
+  <form id="detect-form">
+    <label for="site-url">Site URL:</label>
+    <input id="site-url" placeholder="https://example.com" style="width:360px" />
+    <button type="submit">Detect</button>
+  </form>
+
+  <h2>Or select manually</h2>
+  <select id="manual-framework"></select>
+  <button id="manual-select-btn">Select framework</button>
+
+  <div id="results" style="margin-top:20px"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

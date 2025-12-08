@@ -2,7 +2,13 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import Header from "@/components/Header";
+import {
+	Accordion,
+	AccordionContent,
+	AccordionItem,
+	AccordionTrigger,
+} from "@/components/ui/accordion";
 import { cn } from "@/lib/utils";
 
 const INR_TO_USD = 0.012;
@@ -321,7 +327,10 @@ function PlanCard({
 	billingInterval: BillingInterval;
 	currency: Currency;
 }) {
-	const price = useMemo(() => getPrice(plan.baseInr, billingInterval, currency), [plan.baseInr, billingInterval, currency]);
+	const price = useMemo(
+		() => getPrice(plan.baseInr, billingInterval, currency),
+		[plan.baseInr, billingInterval, currency]
+	);
 
 	return (
 		<article
@@ -333,7 +342,9 @@ function PlanCard({
 			<div className="space-y-4">
 				<div className="flex items-center justify-between">
 					<div className="space-y-2">
-						<p className="text-xs uppercase tracking-[0.3em] text-white/50">{plan.tagline}</p>
+						<p className="text-xs uppercase tracking-[0.3em] text-white/50">
+							{plan.tagline}
+						</p>
 						<h3 className="text-2xl font-semibold">{plan.name}</h3>
 					</div>
 					{plan.popular ? (
@@ -399,11 +410,14 @@ export default function SubscriptionsPage() {
 
 	return (
 		<div className="bg-black text-white">
+			<Header />
 			<section className="py-24">
 				<div className="max-w-6xl mx-auto px-6 space-y-8 text-center">
 					<div className="space-y-4">
 						<p className="text-xs uppercase tracking-[0.3em] text-white/60">Pricing</p>
-						<h1 className="text-4xl font-semibold md:text-5xl">Transparent Pricing. Zero Surprises.</h1>
+						<h1 className="text-4xl font-semibold md:text-5xl">
+							Transparent Pricing. Zero Surprises.
+						</h1>
 						<p className="text-lg text-white/70">
 							Choose the plan that fits your business. Upgrade, downgrade, or cancel anytime with no lock-ins.
 						</p>
@@ -417,7 +431,9 @@ export default function SubscriptionsPage() {
 									onClick={() => setBillingInterval(interval)}
 									className={cn(
 										"rounded-full px-6 py-2 text-sm font-medium transition",
-										billingInterval === interval ? "bg-white text-black" : "text-white/70 hover:text-white"
+										billingInterval === interval
+											? "bg-white text-black"
+											: "text-white/70 hover:text-white"
 									)}
 								>
 									{interval === "monthly" ? "Monthly" : "Yearly"}
@@ -437,7 +453,9 @@ export default function SubscriptionsPage() {
 									onClick={() => setCurrency(option)}
 									className={cn(
 										"rounded-full px-6 py-2 text-sm font-medium transition",
-										currency === option ? "bg-white text-black" : "text-white/70 hover:text-white"
+										currency === option
+											? "bg-white text-black"
+											: "text-white/70 hover:text-white"
 									)}
 								>
 									{option}
@@ -452,7 +470,12 @@ export default function SubscriptionsPage() {
 				<div className="max-w-7xl mx-auto px-6">
 					<div className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
 						{plans.map((plan) => (
-							<PlanCard key={plan.slug} plan={plan} billingInterval={billingInterval} currency={currency} />
+							<PlanCard
+								key={plan.slug}
+								plan={plan}
+								billingInterval={billingInterval}
+								currency={currency}
+							/>
 						))}
 					</div>
 				</div>
@@ -552,7 +575,9 @@ export default function SubscriptionsPage() {
 								<AccordionTrigger className="text-base text-white">
 									{faq.question}
 								</AccordionTrigger>
-								<AccordionContent className="text-sm text-white/70">{faq.answer}</AccordionContent>
+								<AccordionContent className="text-sm text-white/70">
+									{faq.answer}
+								</AccordionContent>
 							</AccordionItem>
 						))}
 					</Accordion>
@@ -585,7 +610,9 @@ export default function SubscriptionsPage() {
 				<div className="max-w-4xl mx-auto px-6">
 					<div className="space-y-8 rounded-3xl border border-white/10 bg-white/5 p-16 text-center shadow-2xl backdrop-blur-xl">
 						<h2 className="text-3xl font-semibold">Start Delivering User Ecstasy Today</h2>
-						<p className="text-lg text-white/70">Free trial. No credit card. Setup in 6 minutes flat.</p>
+						<p className="text-lg text-white/70">
+							Free trial. No credit card. Setup in 6 minutes flat.
+						</p>
 						<div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
 							<Link
 								href="/signup"
@@ -601,7 +628,11 @@ export default function SubscriptionsPage() {
 							</Link>
 						</div>
 						<p className="text-sm text-white/60">
-							Prefer a guided tour? <Link href="/connect" className="underline">Schedule a live walkthrough</Link>.
+							Prefer a guided tour?{" "}
+							<Link href="/connect" className="underline">
+								Schedule a live walkthrough
+							</Link>
+							.
 						</p>
 					</div>
 				</div>
@@ -609,7 +640,9 @@ export default function SubscriptionsPage() {
 
 			<div className="fixed bottom-4 left-1/2 z-40 w-[calc(100%-2rem)] max-w-3xl -translate-x-1/2 rounded-full border border-white/10 bg-white/5 px-6 py-4 shadow-2xl backdrop-blur-xl">
 				<div className="flex flex-col items-center justify-between gap-4 text-sm text-white/80 md:flex-row">
-					<p className="text-center md:text-left">Ready in minutes. Cancel anytime. Annual subscriptions auto-apply 20% savings.</p>
+					<p className="text-center md:text-left">
+						Ready in minutes. Cancel anytime. Annual subscriptions auto-apply 20% savings.
+					</p>
 					<div className="flex flex-col gap-2 sm:flex-row">
 						<Link
 							href="/signup"

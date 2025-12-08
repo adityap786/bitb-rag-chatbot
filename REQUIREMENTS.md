@@ -86,6 +86,7 @@ BiTB enables service businesses to create AI chatbots trained on their own conte
 - IIFE pattern for isolation
 - Web Speech API for voice
 
+
 ### Backend API (Node.js/Serverless)
 ```json
 {
@@ -95,6 +96,13 @@ BiTB enables service businesses to create AI chatbots trained on their own conte
   "dotenv": "^16.0.0"
 }
 ```
+
+### Semantic Cache (LangCache SaaS)
+- **LangCache SaaS** is used for production-grade semantic caching of RAG responses.
+- All queries are checked against LangCache before LLM inference; cache hits return instantly.
+- **Environment variable:** `LANGCACHE_API_KEY` (required)
+- Fallback to local in-memory cache if SaaS is unavailable.
+- See `src/lib/langcache-api.ts` and `src/lib/ragPipeline.ts` for details.
 
 ### Python Ingestion Worker
 ```txt
@@ -777,9 +785,9 @@ app.post('/api/ask', async (req, res) => {
         ▼
 ┌────────────────────────────────────────┐
 │  4. Generate Embeddings                │
-│     - Model: all-MiniLM-L6-v2 (local) │
+│     - Model: nomic-ai/nomic-embed-text-v1.5 (local, 768-dim) │
 │     - Batch size: 32                   │
-│     - Dimension: 384                   │
+│     - Dimension: 768                   │
 └───────┬────────────────────────────────┘
         │
         ▼
@@ -1087,16 +1095,16 @@ async function sendMessage(message) {
 ### Embeddings
 
 **Primary (Local)**:
-- Model: `sentence-transformers/all-MiniLM-L6-v2`
+- Model: `nomic-ai/nomic-embed-text-v1.5`
 - Cost: Free (runs locally)
-- Dimension: 384
+- Dimension: 768
 - Speed: ~100 chunks/second on CPU
 
 **Fallback (Free-tier cloud)**:
 - Hugging Face Inference API (free tier)
-- Model: `sentence-transformers/all-MiniLM-L6-v2`
+- Model: `nomic-ai/nomic-embed-text-v1.5`
 - Rate limit: 1000 requests/month
-- Endpoint: `https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2`
+- Endpoint: `https://api-inference.huggingface.co/models/nomic-ai/nomic-embed-text-v1.5`
 
 ### Vector Database
 

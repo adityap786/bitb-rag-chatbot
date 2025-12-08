@@ -22,7 +22,7 @@ import type { MCPToolRequest, MCPToolResponse, MCPToolName } from './types';
  */
 export async function routeMCPRequest(
   request: NextRequest
-): Promise<NextResponse<MCPToolResponse>> {
+): Promise<NextResponse> {
   const startTime = Date.now();
 
   try {
@@ -62,12 +62,54 @@ export async function routeMCPRequest(
       );
     }
 
+
     // Validate tenant context (security check)
     const tenantValidation = await validateTenantContext(request);
     if (tenantValidation) {
-      return tenantValidation as NextResponse<MCPToolResponse>;
+      return tenantValidation as NextResponse;
     }
 
+    // --- E-com Agent Integration ---
+    // Determine tenant type (for demo, infer from tool name prefix or add real lookup)
+    // In production, fetch tenant type from DB or context
+    let tenantType = 'default';
+    if (mcpRequest.tool && [
+      'catalog_ingestion','payment_link','inventory_sync','product_detail','order_tracking','returns_and_refunds','abandoned_cart_recovery','fraud_check','product_review_summary','personalized_recommendation','size_and_fit_recommender','bundle_and_bogo_engine','check_availability_realtime','add_to_cart','initiate_checkout','subscription_and_replenishment','explain_recommendation','website_navigation','compare_price_across_sellers','analytics_insight_generator'
+    ].includes(mcpRequest.tool)) {
+      tenantType = 'ecom';
+    }
+
+    if (tenantType === 'ecom') {
+      // Dynamically import agent to avoid circular deps
+      const { EcomReACTAgent } = await import('../agents/ecomAgent');
+      const agent = new EcomReACTAgent(mcpRequest.tenant_id, tenantType);
+      // Use the user query from parameters if present
+      const userQuery = mcpRequest.parameters?.query || mcpRequest.tool;
+      const agentResult = await agent.run(userQuery);
+      // Telemetry: log agent action
+      await AuditLogger.logMCPToolInvocation(
+        mcpRequest.tenant_id,
+        'EcomReACTAgent',
+        {
+          success: true,
+          execution_time_ms: Date.now() - startTime,
+          agent_steps: agentResult.steps.length,
+        }
+      );
+      return NextResponse.json({
+        success: true,
+        data: {
+          final_answer: agentResult.finalAnswer,
+          steps: agentResult.steps,
+        },
+        metadata: {
+          execution_time_ms: Date.now() - startTime,
+          agent: 'EcomReACTAgent',
+        },
+      });
+    }
+
+    // --- Default: Route to tool handler as before ---
     // GUARDRAIL: Rate limiting (per-tenant, per-tool)
     const rateLimitConfig = getRateLimitConfigForTool(mcpRequest.tool as MCPToolName);
     if (rateLimitConfig) {
@@ -78,7 +120,7 @@ export async function routeMCPRequest(
 
       const rateLimitResponse = await rateLimitMiddleware(request, rateLimitConfig, identifier);
       if (rateLimitResponse) {
-        return rateLimitResponse as NextResponse<MCPToolResponse>;
+        return rateLimitResponse as NextResponse;
       }
     }
 
@@ -197,10 +239,38 @@ export function getRegisteredHandlers(): MCPToolName[] {
  */
 function getRateLimitConfigForTool(toolName: MCPToolName) {
   const rateLimitMap: Record<MCPToolName, typeof RATE_LIMITS[keyof typeof RATE_LIMITS] | null> = {
+    // Core tools
     rag_query: RATE_LIMITS.MCP_RAG_QUERY,
     ingest_documents: RATE_LIMITS.MCP_INGEST,
     get_trial_status: RATE_LIMITS.MCP_TRIAL_STATUS,
     update_settings: RATE_LIMITS.MCP_UPDATE_SETTINGS,
+    // E-com tools (default to null, handled by per-tenant config)
+    catalog_ingestion: null,
+    payment_link: null,
+    inventory_sync: null,
+    product_detail: null,
+    order_tracking: null,
+    returns_and_refunds: null,
+    abandoned_cart_recovery: null,
+    fraud_check: null,
+    product_review_summary: null,
+    personalized_recommendation: null,
+    size_and_fit_recommender: null,
+    bundle_and_bogo_engine: null,
+    check_availability_realtime: null,
+    add_to_cart: null,
+    initiate_checkout: null,
+    subscription_and_replenishment: null,
+    explain_recommendation: null,
+    website_navigation: null,
+    compare_price_across_sellers: null,
+    analytics_insight_generator: null,
+    // Service tools (default to null, handled by per-tenant config)
+    book_appointment: null,
+    qualify_lead: null,
+    escalate_to_human: null,
+    check_availability: null,
+    service_analytics: null,
   };
 
   return rateLimitMap[toolName] || null;

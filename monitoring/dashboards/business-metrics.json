@@ -1,0 +1,319 @@
+{
+  "dashboard": {
+    "title": "Business Metrics - BIT B RAG Chatbot",
+    "tags": ["bitb", "business", "kpis"],
+    "timezone": "browser",
+    "schemaVersion": 27,
+    "version": 1,
+    "refresh": "1m",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Active Trials",
+        "type": "stat",
+        "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "expr": "count(trial_status{job=\"bitb-chatbot\",status=\"active\"})",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "textMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                { "value": 0, "color": "red" },
+                { "value": 10, "color": "yellow" },
+                { "value": 50, "color": "green" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Trial Conversion Rate (7 days)",
+        "type": "stat",
+        "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+        "targets": [
+          {
+            "expr": "(count_over_time(trial_converted_total{job=\"bitb-chatbot\"}[7d]) / count_over_time(trial_created_total{job=\"bitb-chatbot\"}[7d])) * 100",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "textMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                { "value": 0, "color": "red" },
+                { "value": 10, "color": "yellow" },
+                { "value": 20, "color": "green" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Total Query Volume (24h)",
+        "type": "stat",
+        "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+        "targets": [
+          {
+            "expr": "sum(increase(rag_queries_total{job=\"bitb-chatbot\"}[24h]))",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "textMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                { "value": 0, "color": "blue" },
+                { "value": 1000, "color": "green" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Average Queries per Trial",
+        "type": "stat",
+        "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+        "targets": [
+          {
+            "expr": "sum(increase(rag_queries_total{job=\"bitb-chatbot\"}[24h])) / count(trial_status{job=\"bitb-chatbot\",status=\"active\"})",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "textMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "decimals": 1,
+            "thresholds": {
+              "steps": [
+                { "value": 0, "color": "red" },
+                { "value": 10, "color": "yellow" },
+                { "value": 50, "color": "green" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Trial Signups Over Time",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+        "targets": [
+          {
+            "expr": "increase(trial_created_total{job=\"bitb-chatbot\"}[1h])",
+            "legendFormat": "Signups/hour",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Signups" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Query Volume by Tenant",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+        "targets": [
+          {
+            "expr": "topk(10, rate(rag_queries_total{job=\"bitb-chatbot\"}[5m]))",
+            "legendFormat": "{{tenant_id}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "reqps", "label": "Queries/sec" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "User Satisfaction (from feedback)",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(feedback_rating_bucket{job=\"bitb-chatbot\"}[1h]))",
+            "legendFormat": "Median Rating",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Rating (1-5)", "max": 5, "min": 1 },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Documents Ingested per Trial",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+        "targets": [
+          {
+            "expr": "sum by (tenant_id) (increase(documents_processed_total{job=\"bitb-chatbot\",status=\"success\"}[24h]))",
+            "legendFormat": "{{tenant_id}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Documents" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Trial Workflow Completion Rates",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 22 },
+        "targets": [
+          {
+            "expr": "(sum(increase(workflow_state_total{job=\"bitb-chatbot\",state=\"completed\"}[24h])) / sum(increase(workflow_state_total{job=\"bitb-chatbot\",state=\"started\"}[24h]))) * 100",
+            "legendFormat": "Completion Rate %",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "percent", "label": "Completion %" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Average Trial Duration",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 22 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(trial_duration_seconds_bucket{job=\"bitb-chatbot\"}[1h])) / 3600",
+            "legendFormat": "Median Duration (hours)",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Hours" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Token Cost per Query (estimated)",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 30 },
+        "targets": [
+          {
+            "expr": "((rate(llm_tokens_total{job=\"bitb-chatbot\",type=\"prompt\"}[5m]) * 0.05 / 1000000) + (rate(llm_tokens_total{job=\"bitb-chatbot\",type=\"completion\"}[5m]) * 0.08 / 1000000)) / rate(rag_queries_total{job=\"bitb-chatbot\"}[5m])",
+            "legendFormat": "Cost/Query (USD)",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "currencyUSD", "label": "Cost" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 12,
+        "title": "Monthly Estimated Costs",
+        "type": "stat",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 30 },
+        "targets": [
+          {
+            "expr": "((sum(rate(llm_tokens_total{job=\"bitb-chatbot\",type=\"prompt\"}[30d])) * 0.05 / 1000000) + (sum(rate(llm_tokens_total{job=\"bitb-chatbot\",type=\"completion\"}[30d])) * 0.08 / 1000000)) * 30 * 24 * 3600",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "value",
+          "graphMode": "area",
+          "textMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "thresholds": {
+              "steps": [
+                { "value": 0, "color": "green" },
+                { "value": 500, "color": "yellow" },
+                { "value": 1000, "color": "red" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 13,
+        "title": "Top Tenants by Query Volume",
+        "type": "table",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 38 },
+        "targets": [
+          {
+            "expr": "topk(20, sum by (tenant_id) (increase(rag_queries_total{job=\"bitb-chatbot\"}[24h])))",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": { "Time": true },
+              "renameByName": {
+                "tenant_id": "Tenant ID",
+                "Value": "Queries (24h)"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 14,
+        "title": "Trial Status Distribution",
+        "type": "piechart",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 38 },
+        "targets": [
+          {
+            "expr": "count by (status) (trial_status{job=\"bitb-chatbot\"})",
+            "legendFormat": "{{status}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "displayLabels": ["name", "percent"],
+          "legend": {
+            "displayMode": "table",
+            "placement": "right"
+          }
+        }
+      }
+    ]
+  }
+}

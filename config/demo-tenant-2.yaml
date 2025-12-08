@@ -1,0 +1,15 @@
+id: demo-tenant-2
+name: Demo Tenant 2
+vector_store: supabase
+embedding_provider: openai
+embedding_model: text-embedding-3-small
+chunk_size: 750
+chunk_overlap: 50
+features:
+  enable_search: true
+prompts:
+  greeting: "Hello from demo tenant 2"
+mcp_tools: []
+feature_flags: {}
+rollout:
+  staged_features: []

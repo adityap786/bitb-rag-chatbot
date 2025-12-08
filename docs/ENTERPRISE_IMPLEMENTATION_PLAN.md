@@ -310,7 +310,7 @@ CREATE TABLE embeddings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id TEXT NOT NULL,
   chunk_text TEXT NOT NULL,
-  embedding VECTOR(1536), -- OpenAI ada-002 dimensionality
+  embedding_768 VECTOR(768), -- nomic-ai/nomic-embed-text-v1.5 dimensionality
   metadata JSONB DEFAULT '{}',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -420,7 +420,7 @@ export async function getSupabaseRetriever(tenantId: string) {
 **Supabase Function:** `match_embeddings_by_tenant`
 ```sql
 CREATE OR REPLACE FUNCTION match_embeddings_by_tenant(
-  query_embedding VECTOR(1536),
+  query_embedding VECTOR(768),
   match_tenant_id TEXT,
   match_count INT DEFAULT 5
 )
@@ -1385,7 +1385,7 @@ export async function POST(req: NextRequest) {
 ```sql
 -- Function: match_embeddings_by_tenant
 CREATE OR REPLACE FUNCTION match_embeddings_by_tenant(
-  query_embedding VECTOR(1536),
+  query_embedding VECTOR(768),
   match_tenant_id TEXT,
   match_count INT DEFAULT 5
 )

@@ -1,7 +1,10 @@
+
 # BiTB - RAG SaaS Platform
 
 **BiTB** (Bits and Bytes Talk Bot) is a complete RAG (Retrieval-Augmented Generation) SaaS platform that enables service businesses to create AI chatbots trained on their own data in minutes.
 
+[![CI](https://github.com/adityap786/bitb-rag-chatbot/actions/workflows/test.yml/badge.svg)](https://github.com/adityap786/bitb-rag-chatbot/actions/workflows/test.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/adityap786/bitb-rag-chatbot-coverage-badge.json)](./coverage/index.html)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Next.js](https://img.shields.io/badge/Next.js-15.3.5-black)](https://nextjs.org)
 [![Python](https://img.shields.io/badge/Python-3.9+-blue)](https://python.org)
@@ -45,6 +48,7 @@
 ### Backend (Node.js)
 - Next.js API Routes (serverless)
 - TypeScript
+- Managed semantic cache: LangCache SaaS (fast, production-grade)
 - JSON storage (local dev) or database (production)
 
 ### Python Ingestion Worker
@@ -58,6 +62,10 @@
 - OpenRouter free models
 - Hugging Face Inference API
 - Local Ollama (self-hosted)
+
+### Semantic Cache (Production)
+- **LangCache SaaS**: Managed semantic cache for fast, deduplicated RAG responses
+- Environment: `LANGCACHE_API_KEY` required in `.env`
 
 ## 📁 Project Structure
 
@@ -117,13 +125,14 @@ cd bitb-project
 ### 2. Install Frontend Dependencies
 
 ```bash
-npm install
-# or
-yarn install
-# or
-pnpm install
-# or
-bun install
+# Use npm ci for deterministic installs
+npm ci
+```
+
+If you encounter peer-dependency errors during CI or local installs, run:
+
+```bash
+npm ci --legacy-peer-deps
 ```
 
 ### 3. Install Python Dependencies
@@ -136,9 +145,11 @@ pip install -r requirements.txt
 cd ..
 ```
 
+
+
 ### 4. Set Up Environment Variables
 
-Create a `.env.local` file in the root directory:
+Create a `.env.local` file in the root directory and set all required variables for production reliability:
 
 ```env
 # Widget URL (for embed code generation)
@@ -156,6 +167,17 @@ LLM_PROVIDER=groq  # "groq", "openrouter", "huggingface", "ollama"
 GROQ_API_KEY=       # Optional (free tier / paid tiers) - required for Groq
 GROQ_BASE_URL=https://api.groq.com/openai/v1
 HF_API_KEY=         # Optional for HF fallback
+
+# LangCache SaaS (semantic cache)
+LANGCACHE_API_KEY=your_langcache_api_key_here
+
+# Langfuse Tracing (for observability, required in production)
+LANGFUSE_PUBLIC_KEY=your_langfuse_public_key
+LANGFUSE_SECRET_KEY=your_langfuse_secret_key
+LANGFUSE_HOST=https://cloud.langfuse.com
+
+# Vector DB Monitoring (Prometheus metrics)
+ENABLE_VECTOR_DB_MONITORING=true
 ```
 
 ### 5. Run the Development Server
@@ -253,8 +275,8 @@ The widget accepts these data attributes:
 ### Free-Tier Options
 
 **Embeddings:**
-- Primary: `sentence-transformers/all-MiniLM-L6-v2` (local, free)
-- Fallback: Hugging Face Inference API (1000 requests/month)
+- Primary: `nomic-ai/nomic-embed-text-v1.5` (local, free, 768-dim)
+- Fallback: Hugging Face Inference API (1000 requests/month, 768-dim)
 
 **Vector Store:**
 - Primary: FAISS (local, free)
@@ -366,12 +388,19 @@ Validate trial token.
 }
 ```
 
+
 ## 🧪 Testing
 
 ### Run Unit Tests
 
 ```bash
 npm run test
+```
+
+### Run LangCache SaaS Integration Test
+
+```bash
+npm test src/lib/ragPipeline.langcache.test.ts
 ```
 
 ### Run Voice Greeting Test
@@ -399,6 +428,31 @@ python ingest-worker.py --trial-token tr_test123 --data-source-file test-data.js
 - [ ] Mobile responsive layout works
 - [ ] Dark mode toggle works
 - [ ] Trial expiry message displays correctly
+
+---
+
+
+## 🧠 Semantic Caching (LangCache SaaS)
+
+The RAG pipeline uses a managed semantic cache (LangCache SaaS) for fast, deduplicated responses. All queries are checked against LangCache before LLM inference. If a match is found, the cached answer is returned instantly. Otherwise, the LLM result is stored in LangCache for future queries.
+
+- **Environment variable:** `LANGCACHE_API_KEY` (required)
+- **Fallback:** If LangCache is unavailable, a local in-memory cache is used (see `src/lib/langcache-api.ts`).
+- **Reliability:** All LangCache API calls use retry logic and circuit breaker patterns. For critical paths, a local fallback cache is used.
+
+## 📊 Vector DB Performance Monitoring
+
+Vector DB (Supabase pgvector or FAISS) performance is monitored using Prometheus metrics. See `src/lib/monitoring/vector-performance.ts` for histogram metrics and integration points. Enable with `ENABLE_VECTOR_DB_MONITORING=true` in your environment.
+
+## 🔎 Observability (Langfuse)
+
+Langfuse is used for tracing and observability of RAG operations. Ensure the following environment variables are set in production:
+
+- `LANGFUSE_PUBLIC_KEY`
+- `LANGFUSE_SECRET_KEY`
+- `LANGFUSE_HOST`
+
+Trace events are buffered and retried for reliability. See `src/lib/observability/langfuse-client.ts` for details.
 
 ## 📄 Documentation
 
@@ -444,3 +498,8 @@ For questions, issues, or feature requests:
 ---
 
 **Built with ❤️ for service businesses**
+
+# Troubleshooting
+
+- **Python 3.13+ Warning:** Some dependencies (e.g., numpy, faiss-cpu, pydantic) may not support Python 3.13 yet. Use Python 3.11 or 3.12 for best results.
+- **NPM Peer Dependency Issues:** If you encounter install errors, use `npm ci --legacy-peer-deps` as a fallback.

@@ -1,0 +1,286 @@
+# Comprehensive Tenant Configuration Example
+# Copy and customize this file for each tenant
+
+# Core tenant identification
+id: acme-corp
+name: ACME Corporation
+domain: acme.example.com
+
+# Vector store and RAG configuration
+vector_store: pgvector  # Options: pgvector, pinecone, milvus, weaviate
+embedding_provider: openai  # Options: local, openai, cohere
+embedding_model: text-embedding-3-small
+chunk_size: 1000
+chunk_overlap: 200
+
+# Feature flags
+features:
+  # Core features
+  chat: true
+  rag: true
+  voice: false
+  
+  # E-commerce
+  ecommerce: true
+  recommendations: true
+  productSearch: true
+  cart: true
+  checkout: true
+  inventorySync: true
+  
+  # Booking
+  booking: true
+  calendarIntegration: true
+  
+  # Communication
+  notifications: true
+  emailNotifications: true
+  smsNotifications: true
+  pushNotifications: false
+  
+  # Advanced
+  analytics: true
+  multiChannel: false
+  customBranding: true
+  apiAccess: true
+  webhooks: true
+  sso: false
+  auditLogs: true
+  
+  # RAG specific
+  hybrid_search: true
+  rerank: true
+  enable_sync_jobs: true
+  
+  # Experimental
+  enable_new_reranker: false
+  use_llamaindex_llm: true
+
+# Branding configuration
+branding:
+  primaryColor: "#3B82F6"
+  secondaryColor: "#1E40AF"
+  accentColor: "#10B981"
+  logo: "https://acme.example.com/logo.png"
+  favicon: "https://acme.example.com/favicon.ico"
+  fontFamily: "Inter, system-ui, sans-serif"
+  chatWidget:
+    position: bottom-right
+    welcomeMessage: "Hello! Welcome to ACME. How can I assist you today?"
+    placeholder: "Type your message..."
+    theme: auto
+
+# Prompts configuration with versioning
+prompts:
+  greeting: "Welcome to ACME Corporation!"
+  fallback: "I'm sorry, I don't have an answer for that. Let me connect you with our support team."
+  
+prompt_versions:
+  greeting:
+    v1: "Welcome to ACME Corporation!"
+    v2: "Hello from ACME! How can I help you today?"
+    v3: "Hi there! I'm ACME's AI assistant. What can I do for you?"
+  fallback:
+    v1: "I'm sorry, I don't have an answer for that."
+    v2: "I'm not sure about that. Would you like me to connect you with our support team?"
+
+# Integration configurations
+integrations:
+  openai:
+    enabled: true
+    model: gpt-4o-mini
+    # apiKey set via TENANT_ACME_CORP_OPENAI_API_KEY env var
+  
+  anthropic:
+    enabled: false
+    model: claude-3-sonnet
+  
+  pinecone:
+    enabled: false
+    environment: us-east-1
+    indexName: acme-rag
+  
+  supabase:
+    enabled: true
+  
+  shopify:
+    enabled: true
+    storeUrl: acme.myshopify.com
+  
+  woocommerce:
+    enabled: false
+    storeUrl: null
+  
+  googleCalendar:
+    enabled: true
+  
+  outlookCalendar:
+    enabled: true
+  
+  calendly:
+    enabled: false
+  
+  sendgrid:
+    enabled: true
+    fromEmail: noreply@acme.example.com
+  
+  twilio:
+    enabled: true
+    fromNumber: "+15551234567"
+  
+  langfuse:
+    enabled: true
+  
+  stripe:
+    enabled: true
+
+# MCP tool configuration
+mcp_tools:
+  - name: "summarizer"
+    enabled: true
+    endpoint: "https://api.acme.example.com/summarize"
+    params:
+      max_length: 512
+  - name: "entity_extractor"
+    enabled: true
+    endpoint: "https://api.acme.example.com/entities"
+  - name: "sentiment_analyzer"
+    enabled: true
+    endpoint: "https://api.acme.example.com/sentiment"
+
+# Usage limits
+limits:
+  messagesPerDay: 50000
+  messagesPerMinute: 100
+  tokensPerDay: 5000000
+  storageGb: 50
+  usersMax: 500
+  apiRequestsPerMinute: 500
+  webhooksMax: 50
+  retentionDays: 365
+
+# AI configuration
+ai:
+  defaultModel: gpt-4o-mini
+  temperature: 0.7
+  maxTokens: 2000
+  systemPrompt: |
+    You are a helpful AI assistant for ACME Corporation.
+    Be professional, friendly, and accurate in your responses.
+    You can help with:
+    - Product information and recommendations
+    - Order tracking and status
+    - Appointment booking
+    - General inquiries
+    If you don't know something, say so instead of making up information.
+  ragEnabled: true
+  ragTopK: 5
+  ragMinScore: 0.75
+  embeddingModel: text-embedding-3-small
+  moderationEnabled: true
+  piiDetectionEnabled: true
+
+# Notification settings
+notifications:
+  email:
+    enabled: true
+    templates:
+      order_confirmation: sg_template_order_123
+      order_shipped: sg_template_shipped_456
+      appointment_reminder: sg_template_appt_789
+      welcome: sg_template_welcome_012
+  sms:
+    enabled: true
+    templates:
+      order_confirmation: "Hi {{name}}, your ACME order #{{order_id}} is confirmed! Total: {{total}}"
+      appointment_reminder: "Reminder: Your ACME appointment is on {{date}} at {{time}}"
+  push:
+    enabled: false
+  webhooks:
+    - url: https://api.acme.example.com/webhooks/orders
+      events:
+        - order.created
+        - order.paid
+        - order.shipped
+        - order.delivered
+        - order.cancelled
+      secret: ${ACME_WEBHOOK_SECRET}
+    - url: https://api.acme.example.com/webhooks/bookings
+      events:
+        - booking.created
+        - booking.confirmed
+        - booking.cancelled
+        - booking.rescheduled
+      secret: ${ACME_WEBHOOK_SECRET}
+
+# Security settings
+security:
+  corsOrigins:
+    - https://acme.example.com
+    - https://shop.acme.example.com
+    - https://app.acme.example.com
+  rateLimiting:
+    enabled: true
+    windowMs: 60000
+    maxRequests: 200
+  ipWhitelist: []
+  ipBlacklist: []
+  requireAuth: true
+  sessionTimeout: 7200000  # 2 hours
+  mfaRequired: false
+  passwordPolicy:
+    minLength: 10
+    requireUppercase: true
+    requireLowercase: true
+    requireNumbers: true
+    requireSymbols: true
+
+# Industry vertical configuration
+vertical:
+  type: ecommerce
+  settings:
+    enableProductSearch: true
+    enableCart: true
+    enableCheckout: true
+    inventorySync: true
+    defaultCurrency: USD
+    taxEnabled: true
+    shippingProviders:
+      - ups
+      - fedex
+      - usps
+    returnPolicyDays: 30
+    supportHours:
+      monday: "9:00-17:00"
+      tuesday: "9:00-17:00"
+      wednesday: "9:00-17:00"
+      thursday: "9:00-17:00"
+      friday: "9:00-17:00"
+      saturday: "10:00-14:00"
+      sunday: closed
+    timezone: America/New_York
+
+# Rollout and A/B testing configuration
+rollout:
+  current_prompt_version: v2
+  staged_features:
+    - name: "enable_new_reranker"
+      rollout: 25%
+    - name: "voice"
+      rollout: 10%
+    - name: "recommendations"
+      rollout: 100%
+  canary_users:
+    - user_test_001
+    - user_test_002
+  experiments:
+    - id: exp_greeting_001
+      name: "New Greeting Test"
+      variants:
+        - id: control
+          weight: 50
+          promptVersion: v2
+        - id: treatment
+          weight: 50
+          promptVersion: v3
+      active: true

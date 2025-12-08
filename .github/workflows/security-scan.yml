@@ -1,0 +1,61 @@
+# GitHub Actions security scan template
+# This is a template skeleton — implement concrete actions (Semgrep/CodeQL/Snyk/TruffleHog)
+
+name: Security Scanning Pipeline
+
+on:
+  push:
+    branches: [ main, 'release/**' ]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  sast:
+    name: SAST (Semgrep / CodeQL)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Semgrep (example)
+        # Replace with semgrep action and ruleset configuration
+        run: |
+          echo "# semgrep placeholder - configure semgrep/action here"
+      - name: Run CodeQL (optional)
+        # Configure CodeQL scanning per repo requirements
+        run: |
+          echo "# codeql placeholder"
+
+  dependency-scan:
+    name: Dependency Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run npm audit
+        run: |
+          npm ci
+          npm audit --audit-level=high || true
+      - name: Notify/Fail on critical CVEs
+        run: |
+          echo "# integrate with Snyk in this step for enterprise flows"
+
+  secret-scan:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run TruffleHog or git-secrets
+        run: |
+          echo "# secret scanning placeholder - run trufflehog or git-secrets here"
+
+  license-compliance:
+    name: License Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run license-checker
+        run: |
+          echo "# license compliance placeholder - configure FOSSA or license-checker"
+
+# Notes:
+# - Configure job permissions and branch protection to require these checks for PRs.
+# - Fail criteria: set to fail on Critical/High SAST findings or known exploitable CVEs.
+# - Integrate with GitHub Alerts and/or Slack for immediate notifications.

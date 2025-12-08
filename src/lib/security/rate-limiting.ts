@@ -5,12 +5,13 @@
  * Supports per-tenant, per-tool, and per-IP rate limits.
  * 
  * Storage options:
- * - In-memory (development, single server)
- * - Redis (production, multi-server) - TODO
+ * - Redis (production, multi-server) - primary
+ * - In-memory (development, fallback)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { AuditLogger } from './audit-logging';
+import { getRedisRateLimiter } from './redis-rate-limiter';
 
 /**
  * Rate limit configuration
@@ -32,10 +33,25 @@ interface TokenBucket {
 }
 
 /**
- * In-memory rate limit store
- * TODO: Replace with Redis for production multi-server setup
+ * In-memory rate limit store (fallback only)
+ * Used when Redis is unavailable
  */
 const rateLimitStore = new Map<string, TokenBucket>();
+
+/**
+ * Configuration for rate limiter backend
+ *
+ * Notes:
+ * - In production we use Redis when `REDIS_URL` is present.
+ * - For test runs we also allow Redis when `REDIS_URL` is present so that
+ *   tests which mock `ioredis` can exercise the Redis-backed code path.
+ * - An override `TEST_USE_REDIS=1` can force Redis behavior in non-production
+ *   environments for CI or local debugging.
+ */
+const USE_REDIS = Boolean(
+  process.env.REDIS_URL &&
+    (process.env.NODE_ENV === 'production' || process.env.TEST_USE_REDIS === '1')
+);
 
 /**
  * Predefined rate limit configurations
@@ -92,6 +108,21 @@ export const RATE_LIMITS = {
 };
 
 /**
+ * Validate rate limit configuration
+ */
+export function validateRateLimitConfig(config: { maxRequests: number; windowMs: number }): void {
+  if (config.maxRequests <= 0) {
+    throw new Error('maxRequests must be positive');
+  }
+  if (config.windowMs <= 0) {
+    throw new Error('windowMs must be positive');
+  }
+  if (!Number.isFinite(config.maxRequests) || !Number.isFinite(config.windowMs)) {
+    throw new Error('Rate limit values must be finite numbers');
+  }
+}
+
+/**
  * Get or create token bucket for identifier
  */
 function getTokenBucket(identifier: string, config: RateLimitConfig): TokenBucket {
@@ -124,9 +155,9 @@ function refillTokens(bucket: TokenBucket): void {
 }
 
 /**
- * Check if request is allowed under rate limit
+ * Check if request is allowed under rate limit (in-memory implementation)
  */
-export function checkRateLimit(
+function checkRateLimitInMemory(
   identifier: string,
   config: RateLimitConfig
 ): {
@@ -156,6 +187,46 @@ export function checkRateLimit(
 }
 
 /**
+ * Check if request is allowed under rate limit
+ * Uses Redis in production, falls back to in-memory
+ */
+export function checkRateLimit(
+  identifier: string,
+  config: RateLimitConfig
+):
+  | {
+      allowed: boolean;
+      remaining: number;
+      reset_at: number;
+      retry_after_ms?: number;
+    }
+  | Promise<{
+      allowed: boolean;
+      remaining: number;
+      reset_at: number;
+      retry_after_ms?: number;
+    }> {
+  // Use Redis in production if available (async path)
+  if (USE_REDIS) {
+    try {
+      const limiter = getRedisRateLimiter();
+      const status = limiter.getStatus();
+
+      if (status.connected) {
+        return limiter.checkRateLimit(identifier, config);
+      } else {
+        console.warn('[RateLimiting] Redis not connected, falling back to in-memory');
+      }
+    } catch (error) {
+      console.error('[RateLimiting] Redis error, falling back to in-memory:', error);
+    }
+  }
+
+  // Fallback to in-memory (synchronous)
+  return checkRateLimitInMemory(identifier, config);
+}
+
+/**
  * Rate limit middleware
  */
 export async function rateLimitMiddleware(
@@ -163,7 +234,7 @@ export async function rateLimitMiddleware(
   config: RateLimitConfig,
   identifier: string
 ): Promise<NextResponse | null> {
-  const result = checkRateLimit(identifier, config);
+  const result = await checkRateLimit(identifier, config);
 
   if (!result.allowed) {
     // Extract tenant_id for audit logging (if available)

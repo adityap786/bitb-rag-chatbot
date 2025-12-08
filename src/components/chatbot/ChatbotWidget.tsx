@@ -1,20 +1,28 @@
-﻿
-
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { format } from "date-fns";
-import { Brain, X, Send, Download, Share2, Minimize2, Maximize2, Volume2, VolumeX, RefreshCw, ArrowDownCircle } from "lucide-react";
+import { Brain, X, Send, Download, Share2, Minimize2, Maximize2, Volume2, VolumeX, RefreshCw, ArrowDownCircle, List, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ChatMessage, ChatbotConfig } from "@/types/chatbot";
-import { searchPlaybook } from "@/lib/ragPipeline";
+import { searchPlaybook } from "@/lib/previewPlaybook";
 import { sendVoiceEvent } from "@/lib/telemetry/greetingTelemetry";
+import { BatchQueryInput } from "@/components/chatbot/BatchQueryInput";
+import { BatchResults, BatchProgress } from "@/components/chatbot/BatchResults";
+import CitationCard from "@/components/chatbot/CitationCard";
+import { HealthcareWidgetExtensions } from "@/components/chatbot/healthcare/HealthcareWidgetExtensions";
+import { LegalWidgetExtensions } from "@/components/chatbot/legal/LegalWidgetExtensions";
+import { FinancialWidgetExtensions } from "@/components/chatbot/financial/FinancialWidgetExtensions";
+import { RealEstateWidgetExtensions } from "@/components/chatbot/realestate/RealEstateWidgetExtensions";
+import { EcommerceWidgetExtensions } from "@/components/chatbot/ecommerce/EcommerceWidgetExtensions";
+import { BookingWidgetExtensions } from "@/components/chatbot/booking/BookingWidgetExtensions";
 
 const STORAGE_KEYS = {
   CONFIG: "bitb-config",
@@ -206,10 +214,18 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
   const [activeLanguage, setActiveLanguage] = useState<"en" | "hi" | "hinglish">("en");
   // Remove duplicate greeting/mute state, handled by useGoogleTTSGreeting
   const [shouldStickToBottom, setShouldStickToBottom] = useState(true);
+  
+  // Batch mode state
+  const [chatMode, setChatMode] = useState<'single' | 'batch'>('single');
+  const [batchResults, setBatchResults] = useState<any>(null);
+  const [batchProgress, setBatchProgress] = useState<{ current: number; total: number; query?: string } | null>(null);
 
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatWidgetRef = useRef<HTMLDivElement>(null);
+
+  // Find or generate sessionId for API calls
+  const sessionId = useRef<string>(`session_${Date.now()}`).current;
 
   // Click outside to close (production-level)
   useEffect(() => {
@@ -332,63 +348,110 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
     return null;
   };
 
-  const handleSendMessage = async () => {
-    if (!inputValue.trim() || isLoading) return;
-
+  const handleSendMessage = async (text?: string) => {
+    const messageText = typeof text === 'string' ? text : inputValue;
+    if (!messageText.trim() || isLoading) return;
     setShouldStickToBottom(true);
-
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
-      content: inputValue,
+      content: messageText,
       role: "user",
       timestamp: new Date(),
       language: activeLanguage,
     };
-
     setMessages((prev) => [...prev, userMessage]);
     setInputValue("");
     setIsLoading(true);
-
     await new Promise(resolve => setTimeout(resolve, 500));
-
     try {
       let botResponse: ChatMessage;
-
       if (previewMode) {
-        const knowledge = searchKnowledge(inputValue);
-        
-        if (knowledge && knowledge.score >= 0.2) {
-          botResponse = {
-            id: (Date.now() + 1).toString(),
-            content: knowledge.response,
-            role: "assistant",
-            timestamp: new Date(),
-            language: activeLanguage,
-            sources: [{ url: knowledge.source, title: knowledge.source.replace(/^https?:\/\//, "") }],
-            suggested_replies: generateSuggestedReplies(inputValue, true),
-          };
-        } else {
-          botResponse = {
-            id: (Date.now() + 1).toString(),
-            content: "I could not match that yet. Ask me about:\n\n- Service Desk plan features and onboarding\n- Commerce Assist automations for retail teams\n- Enterprise Command security and compliance\n- 3 day trial workflow and ingestion limits\n- Integrations, voice greeting, or pricing guidance\n\nI am happy to dive into any of those topics.",
-            role: "assistant",
-            timestamp: new Date(),
-            language: activeLanguage,
-            suggested_replies: ["Service plan features", "Commerce Assist details", "Enterprise security"],
-          };
-        }
+        // ...existing code...
       } else {
-        botResponse = {
-          id: (Date.now() + 1).toString(),
-          content: generateResponse(inputValue),
-          role: "assistant",
-          timestamp: new Date(),
-          language: activeLanguage,
-          suggested_replies: generateSuggestedReplies(inputValue, false),
-        };
+        // Support batch and single message
+        const isBatch = false; // TODO: set true if batch input UI is present
+        if (isBatch) {
+          // Example batch request
+          const batchMessages = [{ query: messageText }];
+          const response = await fetch('/api/widget/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId, messages: batchMessages }),
+          });
+          const data = await response.json();
+          if (data.batch && Array.isArray(data.batch)) {
+            data.batch.forEach((entry: any) => {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: Date.now().toString(),
+                  content: entry.reply,
+                  role: 'assistant',
+                  timestamp: entry.timestamp,
+                  sources: entry.sources,
+                  error: entry.error,
+                  characterLimitApplied: entry.characterLimitApplied,
+                  originalLength: entry.originalLength,
+                  audit: entry.audit,
+                  status: entry.status,
+                  language: activeLanguage,
+                },
+              ]);
+            });
+            // Optionally surface batch summary, audits, etc.
+          }
+        } else {
+          // Streaming mode (single message)
+          let partial = "";
+          const response = await fetch(`/api/widget/chat?stream=true`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId, message: messageText }),
+          });
+          if (response.body) {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let done = false;
+            while (!done) {
+              const { value, done: readerDone } = await reader.read();
+              done = readerDone;
+              if (value) {
+                const chunk = decoder.decode(value);
+                chunk.split("\n").forEach(line => {
+                  if (line.startsWith("data: ")) {
+                    try {
+                      const { token, partial: newPartial, metadata } = JSON.parse(line.slice(6));
+                      partial = newPartial;
+                      setMessages((prev) => {
+                        const last = prev[prev.length - 1];
+                        if (last && last.role === "assistant") {
+                          const mergedMetadata = metadata || last.metadata;
+                          return [...prev.slice(0, -1), { ...last, content: partial, metadata: mergedMetadata }];
+                        } else {
+                          return [...prev, { id: Date.now().toString(), content: partial, role: "assistant", timestamp: new Date(), language: activeLanguage, metadata }];
+                        }
+                      });
+                    } catch {}
+                  }
+                });
+              }
+            }
+          } else {
+            // Fallback: non-streaming
+            const data = await response.json();
+            botResponse = {
+              id: (Date.now() + 1).toString(),
+              content: data.reply,
+              role: "assistant",
+              timestamp: new Date(),
+              language: activeLanguage,
+              metadata: data.metadata,
+              sources: data.sources,
+            };
+            setMessages((prev) => [...prev, botResponse]);
+          }
+        }
       }
-
-      setMessages((prev) => [...prev, botResponse]);
     } catch (error) {
       console.error("Error generating response:", error);
       const errorMessage: ChatMessage = {
@@ -434,6 +497,89 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
     }
     
     return ["Service Desk overview", "Commerce Assist details", "Enterprise Command"];
+  };
+
+  const handleBatchSubmit = async (queries: Array<{ id: string; query: string }>) => {
+    if (queries.length === 0 || isLoading) return;
+
+    setIsLoading(true);
+    setBatchResults(null);
+    setBatchProgress({ current: 0, total: queries.length });
+
+    try {
+      const response = await fetch('/api/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          batch: true,
+          queries: queries.map(q => ({ query: q.query })),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      // Check if SSE streaming
+      if (response.headers.get('content-type')?.includes('text/event-stream')) {
+        const reader = response.body!.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.progress) {
+                  setBatchProgress({
+                    current: data.progress.current,
+                    total: data.progress.total,
+                    query: data.progress.query,
+                  });
+                } else if (data.results) {
+                  setBatchResults(data);
+                  setBatchProgress(null);
+                }
+              } catch (e) {
+                console.error('Failed to parse SSE:', e);
+              }
+            }
+          }
+        }
+      } else {
+        // Regular JSON response
+        const data = await response.json();
+        setBatchResults(data);
+        setBatchProgress(null);
+      }
+    } catch (error) {
+      console.error('Batch query error:', error);
+      setBatchResults({
+        results: queries.map(q => ({
+          query: q.query,
+          answer: 'Error processing this query. Please try again.',
+          sources: [],
+          usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+          latencyMs: 0,
+          cached: false,
+        })),
+        totalTokens: 0,
+        totalLatencyMs: 0,
+        aggregated: false,
+      });
+      setBatchProgress(null);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleScrollToLatest = () => {
@@ -683,19 +829,36 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
                               >
                                 {msg.content}
                               </ReactMarkdown>
+                              {/* Batch metadata UI for assistant messages */}
+                              {msg.role === "assistant" && (
+                                <div className="mt-2 space-y-1">
+                                  {msg.status && (
+                                    <span className={`text-xs px-2 py-1 rounded ${msg.status === 'error' ? 'bg-red-900 text-red-300' : 'bg-green-900 text-green-300'}`}>{msg.status}</span>
+                                  )}
+                                  {msg.error && (
+                                    <div className="text-xs text-red-400">Error: {msg.error}</div>
+                                  )}
+                                  {msg.characterLimitApplied !== undefined && (
+                                    <div className="text-xs text-white/60">Character limit: {msg.characterLimitApplied}</div>
+                                  )}
+                                  {msg.originalLength !== undefined && (
+                                    <div className="text-xs text-white/60">Original length: {msg.originalLength}</div>
+                                  )}
+                                  {msg.audit && (
+                                    <details className="text-xs text-white/40"><summary>Audit log</summary><pre>{JSON.stringify(msg.audit, null, 2)}</pre></details>
+                                  )}
+                                </div>
+                              )}
                               {msg.sources && msg.sources.length > 0 && (
                                 <div className="mt-2 pt-2 border-t border-zinc-700">
                                   <p className="text-xs text-white/60 mb-1">Sources:</p>
                                   {msg.sources.map((source, idx) => (
-                                    <a
+                                    <CitationCard
                                       key={idx}
-                                      href={source.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-xs text-zinc-400 hover:text-white underline block"
-                                    >
-                                      {source.title}
-                                    </a>
+                                      source={source}
+                                      conversationId={(msg as any).conversation_id}
+                                      messageId={msg.id}
+                                    />
                                   ))}
                                 </div>
                               )}
@@ -737,6 +900,39 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
                       <div ref={messagesEndRef} />
                     </div>
                   </ScrollArea>
+                  {/* Vertical extensions: tenant-specific quick actions (rendered between messages and input) */}
+                  <div className="px-3 sm:px-4">
+                    {config.industry === 'healthcare' && (
+                      <HealthcareWidgetExtensions onSendMessage={handleSendMessage} tenantId={sessionId} />
+                    )}
+                    {config.industry === 'legal' && (
+                      <LegalWidgetExtensions onSendMessage={handleSendMessage} tenantId={sessionId} />
+                    )}
+                    {config.industry === 'financial' && (
+                      <FinancialWidgetExtensions onSendMessage={handleSendMessage} tenantId={sessionId} />
+                    )}
+                    {config.industry === 'real_estate' && (
+                      <RealEstateWidgetExtensions 
+                        onSendMessage={handleSendMessage} 
+                        tenantId={sessionId} 
+                        lastMessageMetadata={messages[messages.length - 1]?.metadata}
+                      />
+                    )}
+                    {config.industry === 'ecommerce' && (
+                      <EcommerceWidgetExtensions 
+                        onSendMessage={handleSendMessage} 
+                        tenantId={sessionId} 
+                        lastMessageMetadata={messages[messages.length - 1]?.metadata}
+                      />
+                    )}
+                    {config.enableBooking && (
+                      <BookingWidgetExtensions 
+                        onSendMessage={handleSendMessage} 
+                        tenantId={sessionId} 
+                        lastMessageMetadata={messages[messages.length - 1]?.metadata}
+                      />
+                    )}
+                  </div>
                   {!shouldStickToBottom && (
                     <Button
                       variant="secondary"
@@ -751,35 +947,88 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
                   )}
                 </div>
 
-                {/* Sticky Input Area */}
-                <div className="p-3 sm:p-4 border-t border-zinc-800 bg-black shrink-0">
-                  <div className="flex gap-2">
-                    <Textarea
-                      value={inputValue}
-                      onChange={(e) => setInputValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          handleSendMessage();
-                        }
-                        if (e.key === "Escape") {
-                          setIsOpen(false);
-                        }
-                      }}
-                      placeholder="Type your message..."
-                      className="min-h-[44px] max-h-32 resize-none bg-zinc-900 text-white border-zinc-800 placeholder:text-zinc-500"
-                      aria-label="Message input"
-                    />
-                    <Button
-                      onClick={handleSendMessage}
-                      disabled={!inputValue.trim() || isLoading}
-                      size="icon"
-                      className="h-[44px] w-[44px] shrink-0 bg-white text-black hover:bg-zinc-200"
-                      aria-label="Send message"
-                    >
-                      <Send className="h-4 w-4" />
-                    </Button>
-                  </div>
+                {/* Sticky Input Area with Tabs */}
+                <div className="border-t border-zinc-800 bg-black shrink-0">
+                  <Tabs value={chatMode} onValueChange={(v) => setChatMode(v as 'single' | 'batch')} className="w-full">
+                    <TabsList className="w-full justify-start border-b border-zinc-800 bg-black rounded-none h-auto p-0">
+                      <TabsTrigger 
+                        value="single" 
+                        className="flex-1 rounded-none data-[state=active]:bg-zinc-900 data-[state=active]:border-b-2 data-[state=active]:border-white h-10"
+                      >
+                        <MessageSquare className="h-4 w-4 mr-2" />
+                        Single
+                      </TabsTrigger>
+                      <TabsTrigger 
+                        value="batch" 
+                        className="flex-1 rounded-none data-[state=active]:bg-zinc-900 data-[state=active]:border-b-2 data-[state=active]:border-white h-10"
+                      >
+                        <List className="h-4 w-4 mr-2" />
+                        Batch
+                      </TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="single" className="p-3 sm:p-4 m-0">
+                      <div className="flex gap-2">
+                        <Textarea
+                          value={inputValue}
+                          onChange={(e) => setInputValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                              e.preventDefault();
+                              handleSendMessage();
+                            }
+                            if (e.key === "Escape") {
+                              setIsOpen(false);
+                            }
+                          }}
+                          placeholder="Type your message..."
+                          className="min-h-[44px] max-h-32 resize-none bg-zinc-900 text-white border-zinc-800 placeholder:text-zinc-500"
+                          aria-label="Message input"
+                        />
+                        <Button
+                          onClick={() => handleSendMessage()}
+                          disabled={!inputValue.trim() || isLoading}
+                          size="icon"
+                          className="h-[44px] w-[44px] shrink-0 bg-white text-black hover:bg-zinc-200"
+                          aria-label="Send message"
+                        >
+                          <Send className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TabsContent>
+
+                    <TabsContent value="batch" className="p-3 sm:p-4 m-0">
+                      {batchProgress ? (
+                        <BatchProgress 
+                          currentQuery={batchProgress.current}
+                          totalQueries={batchProgress.total}
+                          currentQueryText={batchProgress.query}
+                        />
+                      ) : batchResults ? (
+                        <BatchResults 
+                          results={batchResults.results}
+                          totalTokens={batchResults.totalTokens}
+                          totalLatencyMs={batchResults.totalLatencyMs}
+                          aggregated={batchResults.aggregated}
+                        />
+                      ) : (
+                        <BatchQueryInput 
+                          onSubmit={handleBatchSubmit}
+                          isProcessing={isLoading}
+                          maxQueries={10}
+                        />
+                      )}
+                      {batchResults && !isLoading && (
+                        <Button 
+                          variant="outline" 
+                          className="w-full mt-4"
+                          onClick={() => setBatchResults(null)}
+                        >
+                          New Batch Query
+                        </Button>
+                      )}
+                    </TabsContent>
+                  </Tabs>
                 </div>
               </>
             )}

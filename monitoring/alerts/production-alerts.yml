@@ -1,0 +1,326 @@
+# Prometheus Alert Rules for BIT B RAG Chatbot
+# 
+# Configure these alerts in your Prometheus server or Grafana Alerting.
+# Severity levels: critical (P0), warning (P1), info (P2)
+#
+# To use: Copy to Prometheus alerts.d/ directory or import in Grafana
+
+groups:
+  - name: system_health
+    interval: 30s
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          (rate(http_requests_total{job="bitb-chatbot",status=~"5.."}[5m]) 
+          / rate(http_requests_total{job="bitb-chatbot"}[5m]) * 100) > 5
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+          dashboard: "system-health"
+          runbook: "https://docs.bitb.ai/runbooks/high-error-rate"
+
+      - alert: HighResponseTime
+        expr: |
+          histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="bitb-chatbot"}[5m])) > 5
+        for: 10m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "High API response time"
+          description: "p95 response time is {{ $value }}s (threshold: 5s)"
+          dashboard: "system-health"
+
+      - alert: DatabaseConnectionPoolExhausted
+        expr: supabase_db_connections{job="bitb-chatbot"} > 90
+        for: 5m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "Database connection pool near exhaustion"
+          description: "{{ $value }} active connections (threshold: 90)"
+          dashboard: "system-health"
+          runbook: "https://docs.bitb.ai/runbooks/db-connections"
+
+      - alert: HighMemoryUsage
+        expr: |
+          (process_resident_memory_bytes{job="bitb-chatbot"} / 1024 / 1024 / 1024) > 2
+        for: 10m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value }}GB (threshold: 2GB)"
+          dashboard: "system-health"
+
+      - alert: ServiceDown
+        expr: health_check_status{job="bitb-chatbot"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: "{{ $labels.service }}"
+        annotations:
+          summary: "Service {{ $labels.service }} is down"
+          description: "Health check failing for {{ $labels.service }}"
+          dashboard: "system-health"
+          runbook: "https://docs.bitb.ai/runbooks/service-down"
+
+  - name: rag_pipeline
+    interval: 30s
+    rules:
+      - alert: HighRAGLatency
+        expr: |
+          histogram_quantile(0.95, rate(rag_query_duration_seconds_bucket{job="bitb-chatbot"}[5m])) > 5
+        for: 10m
+        labels:
+          severity: warning
+          component: rag
+        annotations:
+          summary: "High RAG query latency"
+          description: "p95 latency is {{ $value }}s (threshold: 5s)"
+          dashboard: "rag-pipeline"
+          runbook: "https://docs.bitb.ai/runbooks/high-rag-latency"
+
+      - alert: LowCacheHitRate
+        expr: |
+          (rate(rag_cache_hits_total{job="bitb-chatbot"}[10m]) 
+          / (rate(rag_cache_hits_total{job="bitb-chatbot"}[10m]) 
+          + rate(rag_cache_misses_total{job="bitb-chatbot"}[10m])) * 100) < 30
+        for: 30m
+        labels:
+          severity: info
+          component: rag
+        annotations:
+          summary: "Low RAG cache hit rate"
+          description: "Cache hit rate is {{ $value | humanizePercentage }} (threshold: 30%)"
+          dashboard: "rag-pipeline"
+
+      - alert: HighTokenUsage
+        expr: |
+          sum(rate(llm_tokens_total{job="bitb-chatbot"}[1h])) * 3600 > 1000000
+        for: 1h
+        labels:
+          severity: warning
+          component: llm
+        annotations:
+          summary: "High LLM token usage"
+          description: "Token usage is {{ $value }} tokens/hour (threshold: 1M)"
+          dashboard: "rag-pipeline"
+
+      - alert: CircuitBreakerOpen
+        expr: circuit_breaker_state{job="bitb-chatbot"} == 1
+        for: 5m
+        labels:
+          severity: critical
+          component: "{{ $labels.breaker }}"
+        annotations:
+          summary: "Circuit breaker {{ $labels.breaker }} is OPEN"
+          description: "Circuit breaker protecting {{ $labels.breaker }} has opened due to failures"
+          dashboard: "rag-pipeline"
+          runbook: "https://docs.bitb.ai/runbooks/circuit-breaker"
+
+      - alert: IngestionQueueBacklog
+        expr: bullmq_queue_waiting{job="bitb-chatbot",queue="ingestion"} > 100
+        for: 15m
+        labels:
+          severity: warning
+          component: queue
+        annotations:
+          summary: "Large ingestion queue backlog"
+          description: "{{ $value }} jobs waiting in ingestion queue (threshold: 100)"
+          dashboard: "rag-pipeline"
+
+      - alert: DocumentProcessingFailureRate
+        expr: |
+          (rate(documents_processed_total{job="bitb-chatbot",status="failed"}[10m]) 
+          / rate(documents_processed_total{job="bitb-chatbot"}[10m]) * 100) > 10
+        for: 10m
+        labels:
+          severity: warning
+          component: ingestion
+        annotations:
+          summary: "High document processing failure rate"
+          description: "Failure rate is {{ $value | humanizePercentage }} (threshold: 10%)"
+          dashboard: "rag-pipeline"
+
+  - name: security
+    interval: 30s
+    rules:
+      - alert: HighRateLimitViolations
+        expr: rate(rate_limit_exceeded_total{job="bitb-chatbot"}[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: security
+        annotations:
+          summary: "High rate limit violations"
+          description: "{{ $value }} violations/sec (threshold: 10/sec)"
+          dashboard: "security"
+
+      - alert: SuspiciousAuthActivity
+        expr: rate(auth_attempts_total{job="bitb-chatbot",status="failed"}[5m]) > 5
+        for: 5m
+        labels:
+          severity: critical
+          component: security
+        annotations:
+          summary: "High failed authentication rate - possible attack"
+          description: "{{ $value }} failed auth attempts/sec (threshold: 5/sec)"
+          dashboard: "security"
+          runbook: "https://docs.bitb.ai/runbooks/auth-attack"
+
+      - alert: TenantIsolationViolation
+        expr: rate(tenant_isolation_violations_total{job="bitb-chatbot"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: security
+        annotations:
+          summary: "CRITICAL: Tenant isolation violated"
+          description: "Tenant isolation violation detected - immediate investigation required"
+          dashboard: "security"
+          runbook: "https://docs.bitb.ai/runbooks/tenant-isolation"
+
+      - alert: HighPIIDetectionRate
+        expr: rate(pii_detected_total{job="bitb-chatbot"}[10m]) > 1
+        for: 10m
+        labels:
+          severity: info
+          component: security
+        annotations:
+          summary: "High PII detection rate"
+          description: "{{ $value }} PII detections/sec - review data handling"
+          dashboard: "security"
+
+      - alert: InjectionAttemptsDetected
+        expr: rate(injection_blocked_total{job="bitb-chatbot"}[5m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          component: security
+        annotations:
+          summary: "Injection attempts detected"
+          description: "{{ $value }} injection attempts/sec blocked"
+          dashboard: "security"
+          runbook: "https://docs.bitb.ai/runbooks/injection-attack"
+
+      - alert: RedisRateLimiterDown
+        expr: health_check_status{job="bitb-chatbot",service="redis"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          component: security
+        annotations:
+          summary: "Redis rate limiter unavailable - using in-memory fallback"
+          description: "Rate limiting is working but not distributed across servers"
+          dashboard: "security"
+
+  - name: business_metrics
+    interval: 1m
+    rules:
+      - alert: LowTrialSignupRate
+        expr: increase(trial_created_total{job="bitb-chatbot"}[1h]) < 5
+        for: 2h
+        labels:
+          severity: info
+          component: business
+        annotations:
+          summary: "Low trial signup rate"
+          description: "Only {{ $value }} trial signups in last hour (threshold: 5/hour)"
+          dashboard: "business-metrics"
+
+      - alert: LowTrialConversionRate
+        expr: |
+          (count_over_time(trial_converted_total{job="bitb-chatbot"}[7d]) 
+          / count_over_time(trial_created_total{job="bitb-chatbot"}[7d]) * 100) < 10
+        for: 1d
+        labels:
+          severity: info
+          component: business
+        annotations:
+          summary: "Low trial conversion rate"
+          description: "Conversion rate is {{ $value | humanizePercentage }} (threshold: 10%)"
+          dashboard: "business-metrics"
+
+      - alert: HighLLMCosts
+        expr: |
+          ((sum(rate(llm_tokens_total{job="bitb-chatbot",type="prompt"}[30d])) * 0.05 / 1000000) 
+          + (sum(rate(llm_tokens_total{job="bitb-chatbot",type="completion"}[30d])) * 0.08 / 1000000)) 
+          * 30 * 24 * 3600 > 1000
+        for: 1d
+        labels:
+          severity: warning
+          component: business
+        annotations:
+          summary: "High LLM costs projected"
+          description: "Monthly LLM costs projected at ${{ $value }} (threshold: $1000)"
+          dashboard: "business-metrics"
+
+      - alert: NoQueryActivity
+        expr: rate(rag_queries_total{job="bitb-chatbot"}[10m]) == 0
+        for: 30m
+        labels:
+          severity: warning
+          component: business
+        annotations:
+          summary: "No query activity detected"
+          description: "No RAG queries in last 30 minutes - system issue or no users?"
+          dashboard: "business-metrics"
+
+  - name: availability
+    interval: 30s
+    rules:
+      - alert: APIAvailabilityLow
+        expr: |
+          (sum(rate(http_requests_total{job="bitb-chatbot",status!~"5.."}[5m])) 
+          / sum(rate(http_requests_total{job="bitb-chatbot"}[5m])) * 100) < 99.9
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "API availability below SLA"
+          description: "Availability is {{ $value | humanizePercentage }} (SLA: 99.9%)"
+          dashboard: "system-health"
+          runbook: "https://docs.bitb.ai/runbooks/low-availability"
+
+# Notification channel configuration (example for Slack)
+# Configure in Grafana or Alertmanager
+#
+# Example Alertmanager config:
+# receivers:
+#   - name: 'slack-critical'
+#     slack_configs:
+#       - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+#         channel: '#alerts-critical'
+#         title: '{{ .GroupLabels.alertname }}'
+#         text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+#
+#   - name: 'slack-warning'
+#     slack_configs:
+#       - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+#         channel: '#alerts-warning'
+#
+#   - name: 'pagerduty'
+#     pagerduty_configs:
+#       - service_key: 'YOUR_PAGERDUTY_KEY'
+#
+# route:
+#   receiver: 'slack-warning'
+#   group_by: ['alertname', 'severity']
+#   group_wait: 30s
+#   group_interval: 5m
+#   repeat_interval: 4h
+#   routes:
+#     - match:
+#         severity: critical
+#       receiver: 'pagerduty'
+#     - match:
+#         severity: warning
+#       receiver: 'slack-warning'

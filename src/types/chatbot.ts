@@ -2,13 +2,57 @@ export interface ChatMessage {
   id: string;
   content: string;
   role: "user" | "assistant" | "system";
-  timestamp: Date;
+  timestamp: Date | string;
   language?: "en" | "hi" | "hinglish";
   suggested_replies?: string[];
   sources?: Array<{ url: string; title?: string }>;
+  error?: string | null;
+  characterLimitApplied?: number | null;
+  originalLength?: number | null;
+  audit?: any;
+  metadata?: any;
+  status?: "success" | "error";
+}
+export interface BatchChatRequest {
+  sessionId: string;
+  messages: Array<{
+    query: string;
+    metadata?: Record<string, any>;
+  }>;
+}
+
+export interface BatchChatResponse {
+  batch: Array<{
+    reply: string;
+    sources: Array<{ text: string; similarity: number }>;
+    tokens_used: number;
+    latency_ms: number;
+    error?: string | null;
+    characterLimitApplied?: number | null;
+    originalLength?: number | null;
+    audit?: any;
+    query: string;
+    metadata?: Record<string, any>;
+    sessionId: string;
+    status: "success" | "error";
+    timestamp: string;
+  }>;
+  aggregated: boolean;
+  totalTokens: number;
+  totalLatency: number;
+  audits: any[];
+  summary: {
+    batchSize: number;
+    totalTokens: number;
+    totalLatency: number;
+    characterLimits: Array<number | null>;
+    originalLengths: Array<number | null>;
+    errors: Array<any>;
+  };
 }
 
 export interface ChatbotConfig {
+  // ...existing code...
   // Branding
   logo?: string;
   assistantName: string;
@@ -31,14 +75,14 @@ export interface ChatbotConfig {
   enableSiteSearch: boolean;
   enableFeedback: boolean;
   enableTranscriptExport: boolean;
+  enableBooking?: boolean; // New feature flag
   
   // Data Sources
-  indexedUrls: string[];
-  uploadedDocuments: string[];
+  indexedUrls?: string[];
+  uploadedDocuments?: string[];
   
-  // Advanced
-  maxTokens?: number;
-  temperature?: number;
+  // Vertical/Industry
+  industry?: "healthcare" | "legal" | "financial" | "real_estate" | "ecommerce" | "general";
 }
 
 export interface ChatSession {

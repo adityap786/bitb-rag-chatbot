@@ -4,8 +4,7 @@
     "version": "0.1.0",
     "private": true,
     "scripts": {
-        "dev": "next dev",
-        "dev:turbopack": "next dev --turbopack",
+        "dev": "next dev --turbopack",
         "build": "next build",
         "build:check": "npm run typecheck && npm run lint && npm run build",
         "start": "next start",
@@ -53,9 +52,6 @@
         "@headlessui/react": "^2.2.9",
         "@heroicons/react": "^2.2.0",
         "@hookform/resolvers": "^5.1.1",
-        "@huggingface/inference": "^4.13.4",
-        "@langchain/community": "^1.0.7",
-        "@langchain/core": "^1.1.4",
         "@libsql/client": "^0.14.0",
         "@llamaindex/community": "^0.0.104",
         "@llamaindex/core": "^0.6.22",
@@ -205,6 +201,7 @@
         "js-yaml": "4.1.1",
         "react-syntax-highlighter": "16.0.0",
         "prismjs": "^1.28.0",
-        "esbuild": "0.27.0"
+        "esbuild": "0.27.0",
+        "dotenv": "16.6.1"
     }
 }

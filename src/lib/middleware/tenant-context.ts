@@ -28,28 +28,33 @@ export async function validateTenantContext(
     const body = (await request.json()) as TenantContextBody;
     const { tenant_id, trial_token } = body;
 
-    // SECURITY: Fail closed if tenant_id missing
+    // SECURITY: Fail closed if tenant_id missing or invalid
     if (!tenant_id) {
       return NextResponse.json(
         {
-          error: "SECURITY: tenant_id is required",
+          error: "RAG_SECURITY: TENANT_ID_REQUIRED",
           code: "MISSING_TENANT_CONTEXT",
         },
         { status: 403 }
       );
     }
-
-    // Validate tenant_id format
+    
     try {
+      // Throws if invalid
+      // Use the stricter validator from rag-guardrails
+      const { validateTenantId } = await import('@/lib/security/rag-guardrails');
       validateTenantId(tenant_id);
-    } catch (error) {
+    } catch (e: any) {
+      let code = 'MISSING_TENANT_CONTEXT';
+      if (e.message === 'Invalid tenant_id format' || e.message === 'tenant_id must be a string') code = 'INVALID_TENANT_ID';
+      if (e.message === 'RAG_SECURITY: TENANT_ID_REQUIRED' || e.message === 'tenant_id is required') code = 'MISSING_TENANT_CONTEXT';
+      // Always use RAG_SECURITY: TENANT_ID_REQUIRED for missing
+      let errorMsg = e.message;
+      if (e.message === 'tenant_id is required') errorMsg = 'RAG_SECURITY: TENANT_ID_REQUIRED';
       return NextResponse.json(
         {
-          error:
-            error instanceof Error
-              ? error.message
-              : "SECURITY: Invalid tenant_id",
-          code: "INVALID_TENANT_ID",
+          error: errorMsg,
+          code,
         },
         { status: 403 }
       );

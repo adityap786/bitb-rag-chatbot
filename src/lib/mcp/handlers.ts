@@ -17,8 +17,8 @@ import {
 } from '../middleware/tenant-context';
 import { PIIMasker, detectPII } from '../security/pii-masking';
 import { createLlm } from '../rag/llm-factory';
-import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { AuditLogger, hashSensitiveData } from '../security/audit-logging';
+import TrialLogger from '../trial/logger';
 import type {
   MCPToolRequest,
   RagQueryParameters,
@@ -45,6 +45,8 @@ export async function handleRagQuery(
   request: MCPToolRequest
 ): Promise<RagQueryResponse> {
   const startTime = Date.now();
+  // Monitoring: import metrics
+  const { recordApiCall } = await import('../monitoring');
   const params = request.parameters as unknown as RagQueryParameters;
   const { tenant_id, trial_token } = request;
 
@@ -75,6 +77,8 @@ export async function handleRagQuery(
         success: false,
       });
 
+      // Monitoring: record error API call for MCP rag_query
+      recordApiCall('mcp_tool_rag_query', 429, Date.now() - startTime);
       return {
         success: false,
         data: {
@@ -92,71 +96,41 @@ export async function handleRagQuery(
     }
   }
 
-  // Get retriever (use sanitized query with PII masked)
-  const retriever = await getSupabaseRetriever(tenant_id, {
-    k: params.k ?? 3,
-    similarityThreshold: params.similarity_threshold ?? 0.0,
+  // Use enhanced hybrid RAG with Groq Llama-3-70B
+  const { mcpHybridRagQuery } = await import('../ragPipeline');
+  
+  // Get tenant LLM preferences
+  const supabase = createClient(supabaseUrl, supabaseKey);
+  await supabase.rpc('set_tenant_context', { p_tenant_id: tenant_id });
+  const { data: trial } = await supabase
+    .from('trials')
+    .select('llm_provider, llm_model')
+    .eq('tenant_id', tenant_id)
+    .single();
+
+  const llmProvider = trial?.llm_provider || 'groq';
+  const llmModel = trial?.llm_model || 'llama-3-groq-70b-8192-tool-use-preview';
+
+  // Run hybrid search + LLM synthesis
+  const ragResult = await mcpHybridRagQuery({
+    tenantId: tenant_id,
+    query: sanitizedQuery,
+    k: params.k ?? 4,
+    llmProvider,
+    llmModel,
+    responseCharacterLimit: params.responseCharacterLimit, // Optional character limit
   });
+  const responseTime = Date.now() - startTime;
+  // Monitoring: record API call for MCP rag_query
+  recordApiCall('mcp_tool_rag_query', 200, responseTime);
 
-  // Retrieve documents (with sanitized query)
-  const documents = await retriever.invoke(sanitizedQuery);
-
-  // Format sources
-  const sources = documents.map((doc: any) => ({
-    content: doc.pageContent,
-    metadata: params.include_metadata !== false ? doc.metadata : {},
-    similarity_score: doc.metadata?.similarity_score,
+  const answer = ragResult.answer;
+  const sources = ragResult.sources.map((s: any) => ({
+    content: s.chunk,
+    metadata: params.include_metadata !== false ? { title: s.title, index: s.index } : {},
+    similarity_score: s.score,
   }));
-
-  // Generate answer (use LLM if configured; fallback to extractive)
-  const answer = documents.length > 0
-    ? documents[0].pageContent
-    : "I couldn't find relevant information in the knowledge base.";
-
-  try {
-      // Respect per-tenant LLM preferences
-      const supabase = createClient(supabaseUrl, supabaseKey);
-      await supabase.rpc('set_tenant_context', { p_tenant_id: tenant_id });
-      const { data: trial } = await supabase
-        .from('trials')
-        .select('llm_provider, llm_model')
-        .eq('tenant_id', tenant_id)
-        .single();
-
-      const llm = await createLlm({ provider: trial?.llm_provider, model: trial?.llm_model });
-    if (llm && documents.length > 0) {
-      const context = documents
-        .slice(0, 4)
-        .map((doc: any, idx: number) => {
-          const title = doc.metadata?.title ?? `Document ${idx + 1}`;
-          const url = doc.metadata?.url ?? "";
-          const content = (doc.pageContent ?? "").slice(0, 800);
-          return `\n[${idx + 1}] ${title}\nURL: ${url}\n${content}`;
-        })
-        .join("\n\n");
-
-      const prompt = ChatPromptTemplate.fromMessages([
-        [
-          'system',
-          'You are Rachel, the BiTB assistant. Answer using only the provided context and cite sources as [n]. Keep answers concise and helpful.'
-        ],
-        ['human', 'Question: {question}\n\nContext:\n{context}\n\nRespond in markdown.']
-      ]);
-
-      const promptValue = await prompt.invoke({ question: sanitizedQuery, context });
-      const llmResult = await llm.invoke(promptValue.toString());
-      if (llmResult && llmResult.trim().length > 0) {
-        // Replace the default extractive answer with the generated string
-        // Protected: LLM output should be masked for PII if necessary
-        // (context already uses sanitizedQuery)
-        (answer as unknown) = llmResult;
-      }
-    }
-  } catch (err) {
-    console.warn('[RAG] LLM generation failed. Falling back to extractive answer.', err);
-  }
-
-  const confidence = documents.length > 0 ? 0.8 : 0.1;
+  const confidence = ragResult.confidence;
 
   // Increment usage
   if (trial_token) {
@@ -175,10 +149,25 @@ export async function handleRagQuery(
   // GUARDRAIL 3: Audit log successful query (hashed)
   await AuditLogger.logRagQuery(tenant_id, params.query, {
     trial_token,
-    result_count: documents.length,
+    result_count: sources.length,
     execution_time_ms: executionTime,
     success: true,
   });
+
+  // Log request and response metrics
+  TrialLogger.logRequest(
+    'MCP_TOOL',
+    'rag_query',
+    200,
+    Date.now() - startTime,
+    {
+      tenantId: tenant_id,
+      responseCharacterLimit: ragResult.characterLimitApplied || null,
+      originalLength: ragResult.originalLength || null,
+      replyLength: ragResult.answer.length,
+      error: ragResult.llmError || null,
+    }
+  );
 
   return {
     success: true,
@@ -190,7 +179,6 @@ export async function handleRagQuery(
     },
   };
 }
-
 /**
  * Tool: ingest_documents
  * Adds documents to tenant's knowledge base
@@ -223,6 +211,7 @@ export async function handleIngestDocuments(
     success: true,
   });
 
+  // No error monitoring needed here; return placeholder response
   return {
     success: true,
     data: {
@@ -234,11 +223,6 @@ export async function handleIngestDocuments(
     },
   };
 }
-
-/**
- * Tool: get_trial_status
- * Retrieves trial information and usage statistics
- */
 export async function handleGetTrialStatus(
   request: MCPToolRequest
 ): Promise<GetTrialStatusResponse> {
@@ -311,7 +295,6 @@ export async function handleGetTrialStatus(
     },
   };
 }
-
 /**
  * Tool: update_settings
  * Updates chatbot configuration for tenant

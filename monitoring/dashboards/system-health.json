@@ -1,0 +1,265 @@
+{
+  "dashboard": {
+    "title": "System Health - BIT B RAG Chatbot",
+    "tags": ["bitb", "system", "health"],
+    "timezone": "browser",
+    "schemaVersion": 27,
+    "version": 1,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "HTTP Request Rate",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{job=\"bitb-chatbot\"}[5m])",
+            "legendFormat": "{{method}} {{route}} - {{status}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "reqps", "label": "Requests/sec" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Error Rate",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{job=\"bitb-chatbot\",status=~\"5..\"}[5m]) / rate(http_requests_total{job=\"bitb-chatbot\"}[5m]) * 100",
+            "legendFormat": "Error Rate %",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "percent", "label": "Error %" },
+          { "format": "short" }
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": { "params": [5], "type": "gt" },
+              "operator": { "type": "and" },
+              "query": { "params": ["A", "5m", "now"] },
+              "reducer": { "params": [], "type": "avg" },
+              "type": "query"
+            }
+          ],
+          "executionErrorState": "alerting",
+          "frequency": "1m",
+          "handler": 1,
+          "name": "High Error Rate",
+          "noDataState": "no_data",
+          "message": "Error rate above 5% for 5 minutes"
+        }
+      },
+      {
+        "id": 3,
+        "title": "Response Time (p95)",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=\"bitb-chatbot\"}[5m]))",
+            "legendFormat": "p95 - {{route}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{job=\"bitb-chatbot\"}[5m]))",
+            "legendFormat": "p50 - {{route}}",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          { "format": "s", "label": "Response Time" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Active Database Connections",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+        "targets": [
+          {
+            "expr": "supabase_db_connections{job=\"bitb-chatbot\"}",
+            "legendFormat": "Connections",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Connections" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Memory Usage",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+        "targets": [
+          {
+            "expr": "process_resident_memory_bytes{job=\"bitb-chatbot\"} / 1024 / 1024",
+            "legendFormat": "RSS Memory (MB)",
+            "refId": "A"
+          },
+          {
+            "expr": "nodejs_heap_size_used_bytes{job=\"bitb-chatbot\"} / 1024 / 1024",
+            "legendFormat": "Heap Used (MB)",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          { "format": "deckbytes", "label": "Memory" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "CPU Usage",
+        "type": "graph",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+        "targets": [
+          {
+            "expr": "rate(process_cpu_seconds_total{job=\"bitb-chatbot\"}[5m]) * 100",
+            "legendFormat": "CPU Usage %",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "percent", "label": "CPU %" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Health Check Status",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 6, "x": 0, "y": 24 },
+        "targets": [
+          {
+            "expr": "health_check_status{job=\"bitb-chatbot\",service=\"database\"}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              { "options": { "0": { "text": "DOWN", "color": "red" } } },
+              { "options": { "1": { "text": "UP", "color": "green" } } }
+            ],
+            "thresholds": {
+              "steps": [
+                { "value": 0, "color": "red" },
+                { "value": 1, "color": "green" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 8,
+        "title": "Redis Health",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 6, "x": 6, "y": 24 },
+        "targets": [
+          {
+            "expr": "health_check_status{job=\"bitb-chatbot\",service=\"redis\"}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              { "options": { "0": { "text": "DOWN", "color": "red" } } },
+              { "options": { "1": { "text": "UP", "color": "green" } } }
+            ],
+            "thresholds": {
+              "steps": [
+                { "value": 0, "color": "red" },
+                { "value": 1, "color": "green" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 9,
+        "title": "Groq API Health",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 6, "x": 12, "y": 24 },
+        "targets": [
+          {
+            "expr": "health_check_status{job=\"bitb-chatbot\",service=\"groq\"}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              { "options": { "0": { "text": "DOWN", "color": "red" } } },
+              { "options": { "1": { "text": "UP", "color": "green" } } }
+            ],
+            "thresholds": {
+              "steps": [
+                { "value": 0, "color": "red" },
+                { "value": 1, "color": "green" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 10,
+        "title": "BullMQ Queue Health",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 6, "x": 18, "y": 24 },
+        "targets": [
+          {
+            "expr": "health_check_status{job=\"bitb-chatbot\",service=\"bullmq\"}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "colorMode": "background",
+          "graphMode": "none",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              { "options": { "0": { "text": "DOWN", "color": "red" } } },
+              { "options": { "1": { "text": "UP", "color": "green" } } }
+            ],
+            "thresholds": {
+              "steps": [
+                { "value": 0, "color": "red" },
+                { "value": 1, "color": "green" }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

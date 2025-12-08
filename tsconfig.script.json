@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "./dist-script",
+    "rootDir": "."
+  },
+  "include": [
+    "scripts/test-supabase-ingest-retrieve.ts",
+    "src/lib/rag/supabase-vector-store.ts",
+    "src/lib/rag/supabase-keyword-index.ts",
+    "src/lib/rag/retrieval-pipeline.ts",
+    "src/lib/rag/llamaindex-chunking.ts",
+    "src/lib/rag/embedding-generator.ts",
+    "src/lib/rag/hybrid-search.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

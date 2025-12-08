@@ -28,6 +28,8 @@ Environment Variables:
 
 import os
 import sys
+if sys.version_info >= (3, 13):
+    print("WARNING: Python 3.13+ detected. Some dependencies may not be compatible. Use Python 3.11 or 3.12 for best results.")
 import json
 import logging
 from datetime import datetime, timedelta
@@ -435,11 +437,20 @@ class IngestionPipeline:
     def run(self) -> Dict:
         """Run the ingestion pipeline."""
         logger.info(f"Starting ingestion for trial {self.trial_token}")
-        
+        # Emit early progress for queue monitor
+        try:
+            print("PROGRESS: 5", flush=True)
+        except Exception:
+            pass
+
         try:
             # Step 1: Fetch content
             pages = self._fetch_content()
             logger.info(f"Fetched {len(pages)} pages/files")
+            try:
+                print(f"PROGRESS: {10 + min(20, len(pages))}", flush=True)
+            except Exception:
+                pass
             
             # Step 2: Chunk text
             all_chunks = []
@@ -451,15 +462,66 @@ class IngestionPipeline:
                 all_chunks.extend(chunks)
             
             logger.info(f"Created {len(all_chunks)} chunks")
+            try:
+                print("PROGRESS: 40", flush=True)
+            except Exception:
+                pass
             
             # Step 3: Generate embeddings
             texts = [chunk['text'] for chunk in all_chunks]
             embeddings = self.embedder.generate(texts)
+            try:
+                print("PROGRESS: 70", flush=True)
+            except Exception:
+                pass
             
             # Step 4: Store in FAISS
             self.vector_store.create_index(embeddings, all_chunks)
             self.vector_store.save()
-            
+            try:
+                print("PROGRESS: 90", flush=True)
+            except Exception:
+                pass
+
+            # Step 5: Upload embeddings to Supabase
+            try:
+                import requests
+                SUPABASE_URL = os.getenv('SUPABASE_URL')
+                SUPABASE_SERVICE_ROLE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+                if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
+                    endpoint = f"{SUPABASE_URL}/rest/v1/embeddings"
+                    headers = {
+                        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+                        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+                        "Content-Type": "application/json"
+                    }
+                    # Prepare records
+                    records = []
+                    for chunk, embedding in zip(all_chunks, embeddings):
+                        records.append({
+                            "tenant_id": self.trial_token,  # trial_token used as tenant_id for trial
+                            "trial_token": self.trial_token,
+                            "content": chunk['text'],
+                            "embedding": embedding.tolist(),
+                            "metadata": json.dumps(chunk.get('metadata', {})),
+                        })
+                    # Batch insert
+                    resp = requests.post(endpoint, headers=headers, data=json.dumps(records))
+                    if resp.status_code not in (200, 201):
+                        logger.error(f"Supabase upload failed: {resp.text}")
+                    else:
+                        logger.info(f"Uploaded {len(records)} embeddings to Supabase")
+                else:
+                    logger.warning("Supabase env vars not set, skipping upload")
+            except Exception as e:
+                logger.error(f"Error uploading embeddings to Supabase: {e}")
+
+            # Final progress update
+            try:
+                print("PROGRESS: 100", flush=True)
+            except Exception:
+                pass
+
             return {
                 'status': 'completed',
                 'pages_processed': len(pages),

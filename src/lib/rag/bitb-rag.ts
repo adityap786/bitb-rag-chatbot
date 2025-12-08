@@ -1,35 +1,40 @@
-import path from "path";
-import { promises as fs } from "fs";
-import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { StringOutputParser } from "@langchain/core/output_parsers";
-import { pipeline } from "@xenova/transformers";
-import { createLlm } from "./llm-factory";
-
-export interface RagSource {
+// Represents a single source/citation in the RAG answer
+type RagSource = {
   id: number;
   url: string;
   title: string;
   section?: string;
   score: number;
-}
-
-export interface RagAnswer {
-  answer: string;
-  sources: RagSource[];
-  confidence: number;
-}
-
-export interface RagHistoryItem {
-  role: "user" | "assistant";
+};
+// Represents a row in the knowledge base JSON
+// Represents a single turn in the RAG chat history
+type RagHistoryItem = {
+  role: 'user' | 'assistant';
   content: string;
-}
+};
 
-interface KnowledgeRow {
+// Represents the answer returned by the RAG system
+type RagAnswer = {
+  answer: string;
+  sources: Array<{
+    url: string;
+    title: string;
+    section?: string;
+  }>;
+  confidence: number;
+};
+
+type KnowledgeRow = {
   url: string;
   title: string;
   section?: string;
   content: string;
-}
+};
+import path from "path";
+import { promises as fs } from "fs";
+import { pipeline } from "@xenova/transformers";
+import { createLlm } from "./llm-factory";
+import { createLlamaIndexLlm } from "./llamaindex-llm-factory";
 
 interface ChunkPayload {
   content: string;
@@ -50,7 +55,7 @@ type RankedChunk = {
   score: number;
 };
 
-const MODEL_NAME = process.env.BITB_EMBEDDING_MODEL || "Xenova/all-mpnet-base-v2";
+const MODEL_NAME = process.env.BITB_EMBEDDING_MODEL || "nomic-ai/nomic-embed-text-v1.5";
 const DEFAULT_LLM_MODEL = process.env.BITB_LLM_MODEL || "gpt-4o-mini";
 const CHUNK_SIZE = 800;
 const CHUNK_OVERLAP = 120;
@@ -149,11 +154,12 @@ class BitbRag {
   private chunks: StoredChunk[];
   private embeddingService: EmbeddingService;
   private llmPromise: Promise<any | null>;
-  private outputParser = new StringOutputParser();
+  private useLlamaIndex: boolean;
 
   constructor(chunks: StoredChunk[], embeddingService: EmbeddingService) {
     this.chunks = chunks;
     this.embeddingService = embeddingService;
+    this.useLlamaIndex = process.env.USE_LLAMAINDEX_LLM === 'true';
     this.llmPromise = this.createLlm();
   }
 
@@ -197,43 +203,31 @@ class BitbRag {
     const llm = await this.llmPromise;
 
     if (llm) {
-      const prompt = ChatPromptTemplate.fromMessages([
-        [
-          "system",
-          "You are Rachel, the BiTB virtual assistant. Answer using only the provided context. Keep answers concise, cite sources as [n], and mention when information is unavailable.",
-        ],
-        [
-          "system",
-          "Previous conversation:\n{history}\n---",
-        ],
-        [
-          "human",
-          "Question: {question}\n\nContext:\n{context}\n\nRespond in markdown with helpful structure.",
-        ],
-      ]);
-
       // Mask/redact PII in context before sending to LLM
       const safeContext = maskPII(formatContext(matches));
-      const promptValue = await prompt.invoke({
-        question,
-        history: formatChatHistory(history),
-        context: safeContext,
-      });
+      const historyText = formatChatHistory(history);
 
-      const llmResult = await llm.invoke(promptValue);
-      return this.outputParser.invoke(llmResult);
-    // Simple PII masking function (extend as needed)
-    function maskPII(text: string): string {
-      // Mask emails
-      text = text.replace(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '[REDACTED_EMAIL]');
-      // Mask phone numbers
-      text = text.replace(/(\+?\d{1,3}[\s-]?)?(\(?\d{3}\)?[\s-]?\d{3}[\s-]?\d{4})/g, '[REDACTED_PHONE]');
-      // Mask SSN-like patterns
-      text = text.replace(/\b\d{3}-\d{2}-\d{4}\b/g, '[REDACTED_SSN]');
-      // Mask credit card numbers (basic)
-      text = text.replace(/\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b/g, '[REDACTED_CC]');
-      return text;
-    }
+      // Build prompt string manually (compatible with both LangChain and LlamaIndex)
+      const systemPrompt = "You are Rachel, the BiTB virtual assistant. Answer using only the provided context. Keep answers concise, cite sources as [n], and mention when information is unavailable.";
+      const historySection = `Previous conversation:\n${historyText}\n---`;
+      const userPrompt = `Question: ${question}\n\nContext:\n${safeContext}\n\nRespond in markdown with helpful structure.`;
+
+      if (this.useLlamaIndex) {
+        // LlamaIndex approach: use chat method with messages array
+        try {
+          const response = await llm.chat({
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'system', content: historySection },
+              { role: 'user', content: userPrompt },
+            ],
+          });
+          return response.message?.content || this.buildExtractiveAnswer(question, matches);
+        } catch (error) {
+          console.warn('[BiTB] LlamaIndex LLM generation failed, falling back', error);
+          return this.buildExtractiveAnswer(question, matches);
+        }
+      }
     }
 
     return this.buildExtractiveAnswer(question, matches);
@@ -267,6 +261,9 @@ class BitbRag {
 
   private async createLlm(): Promise<any | null> {
     try {
+      if (this.useLlamaIndex) {
+        return await createLlamaIndexLlm();
+      }
       return await createLlm();
     } catch (error) {
       console.warn("[BiTB] Failed to initialize LLM factory", error);
@@ -356,4 +353,17 @@ function truncate(text: string, limit: number): string {
     return text;
   }
   return `${text.slice(0, limit - 3).trim()}...`;
+}
+
+// Simple PII masking function (extend as needed)
+function maskPII(text: string): string {
+  // Mask emails
+  let result = text.replace(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '[REDACTED_EMAIL]');
+  // Mask phone numbers
+  result = result.replace(/(\+?\d{1,3}[\s-]?)?(\(?\d{3}\)?[\s-]?\d{3}[\s-]?\d{4})/g, '[REDACTED_PHONE]');
+  // Mask SSN-like patterns
+  result = result.replace(/\b\d{3}-\d{2}-\d{4}\b/g, '[REDACTED_SSN]');
+  // Mask credit card numbers (basic)
+  result = result.replace(/\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b/g, '[REDACTED_CC]');
+  return result;
 }

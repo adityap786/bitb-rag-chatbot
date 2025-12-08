@@ -1,0 +1,479 @@
+{
+  "generated": "2025-11-22T20:18:02.907Z",
+  "thresholds": {
+    "statements": 80,
+    "branches": 75,
+    "functions": 80,
+    "lines": 80
+  },
+  "hotspots": [
+    {
+      "file": "src\\lib\\trial\\embeddings.ts",
+      "statements": 0,
+      "branches": 0,
+      "functions": 0,
+      "lines": 0,
+      "totals": {
+        "statementsTotal": 15,
+        "branchesTotal": 10,
+        "functionsTotal": 2
+      }
+    },
+    {
+      "file": "src\\lib\\trial\\errors.ts",
+      "statements": 0,
+      "branches": 0,
+      "functions": 0,
+      "lines": 0,
+      "totals": {
+        "statementsTotal": 21,
+        "branchesTotal": 5,
+        "functionsTotal": 9
+      }
+    },
+    {
+      "file": "src\\lib\\rag\\supabase-retriever.ts",
+      "statements": 7.87,
+      "branches": 16.22,
+      "functions": 6.67,
+      "lines": 7.87,
+      "totals": {
+        "statementsTotal": 89,
+        "branchesTotal": 37,
+        "functionsTotal": 15
+      }
+    },
+    {
+      "file": "src\\lib\\trial\\workflow-llm.ts",
+      "statements": 11.11,
+      "branches": 0,
+      "functions": 16.67,
+      "lines": 11.11,
+      "totals": {
+        "statementsTotal": 18,
+        "branchesTotal": 4,
+        "functionsTotal": 6
+      }
+    },
+    {
+      "file": "src\\lib\\supabase-client.ts",
+      "statements": 17.65,
+      "branches": 0,
+      "functions": 25,
+      "lines": 17.65,
+      "totals": {
+        "statementsTotal": 17,
+        "branchesTotal": 12,
+        "functionsTotal": 4
+      }
+    },
+    {
+      "file": "src\\lib\\middleware\\tenant-context.ts",
+      "statements": 20.73,
+      "branches": 17.31,
+      "functions": 20,
+      "lines": 20.73,
+      "totals": {
+        "statementsTotal": 82,
+        "branchesTotal": 52,
+        "functionsTotal": 5
+      }
+    },
+    {
+      "file": "src\\lib\\auth\\admin-auth.ts",
+      "statements": 23.16,
+      "branches": 14,
+      "functions": 54.55,
+      "lines": 23.16,
+      "totals": {
+        "statementsTotal": 95,
+        "branchesTotal": 50,
+        "functionsTotal": 11
+      }
+    },
+    {
+      "file": "src\\lib\\rag\\llamaindex-embeddings.ts",
+      "statements": 30.77,
+      "branches": 26.32,
+      "functions": 33.33,
+      "lines": 30.77,
+      "totals": {
+        "statementsTotal": 26,
+        "branchesTotal": 19,
+        "functionsTotal": 6
+      }
+    },
+    {
+      "file": "src\\lib\\trial\\rag-pipeline.ts",
+      "statements": 36.36,
+      "branches": 43.18,
+      "functions": 45,
+      "lines": 36.36,
+      "totals": {
+        "statementsTotal": 110,
+        "branchesTotal": 88,
+        "functionsTotal": 20
+      }
+    },
+    {
+      "file": "src\\lib\\trial\\logger.ts",
+      "statements": 39.13,
+      "branches": 18.75,
+      "functions": 100,
+      "lines": 39.13,
+      "totals": {
+        "statementsTotal": 23,
+        "branchesTotal": 16,
+        "functionsTotal": 10
+      }
+    },
+    {
+      "file": "src\\lib\\analytics\\metrics.ts",
+      "statements": 41.18,
+      "branches": 59.09,
+      "functions": 28.57,
+      "lines": 41.18,
+      "totals": {
+        "statementsTotal": 34,
+        "branchesTotal": 22,
+        "functionsTotal": 7
+      }
+    },
+    {
+      "file": "src\\lib\\observability\\langfuse-client.ts",
+      "statements": 44.19,
+      "branches": 42.86,
+      "functions": 50,
+      "lines": 44.19,
+      "totals": {
+        "statementsTotal": 43,
+        "branchesTotal": 14,
+        "functionsTotal": 4
+      }
+    },
+    {
+      "file": "src\\lib\\security\\audit-logging.ts",
+      "statements": 46.97,
+      "branches": 30.95,
+      "functions": 25,
+      "lines": 46.97,
+      "totals": {
+        "statementsTotal": 66,
+        "branchesTotal": 42,
+        "functionsTotal": 12
+      }
+    },
+    {
+      "file": "src\\lib\\trial\\workflow-interrupts.ts",
+      "statements": 47.31,
+      "branches": 44.19,
+      "functions": 70.59,
+      "lines": 47.31,
+      "totals": {
+        "statementsTotal": 93,
+        "branchesTotal": 43,
+        "functionsTotal": 17
+      }
+    },
+    {
+      "file": "src\\lib\\ingestion-queue.ts",
+      "statements": 50,
+      "branches": 50,
+      "functions": 33.33,
+      "lines": 50,
+      "totals": {
+        "statementsTotal": 22,
+        "branchesTotal": 6,
+        "functionsTotal": 6
+      }
+    },
+    {
+      "file": "src\\lib\\security\\rate-limiting.ts",
+      "statements": 51.06,
+      "branches": 27.78,
+      "functions": 50,
+      "lines": 51.06,
+      "totals": {
+        "statementsTotal": 47,
+        "branchesTotal": 36,
+        "functionsTotal": 10
+      }
+    },
+    {
+      "file": "src\\lib\\trial\\workflow-engine.ts",
+      "statements": 52.24,
+      "branches": 42.45,
+      "functions": 60.61,
+      "lines": 52.24,
+      "totals": {
+        "statementsTotal": 245,
+        "branchesTotal": 139,
+        "functionsTotal": 33
+      }
+    },
+    {
+      "file": "src\\lib\\rag\\llamaindex-llm-factory.ts",
+      "statements": 55.26,
+      "branches": 63.33,
+      "functions": 50,
+      "lines": 55.26,
+      "totals": {
+        "statementsTotal": 38,
+        "branchesTotal": 30,
+        "functionsTotal": 6
+      }
+    },
+    {
+      "file": "src\\lib\\ecommerce\\checkout.ts",
+      "statements": 55.88,
+      "branches": 71.88,
+      "functions": 75,
+      "lines": 55.88,
+      "totals": {
+        "statementsTotal": 34,
+        "branchesTotal": 32,
+        "functionsTotal": 4
+      }
+    },
+    {
+      "file": "src\\lib\\escalation\\human-escalation-service.ts",
+      "statements": 59.7,
+      "branches": 66.67,
+      "functions": 45.45,
+      "lines": 59.7,
+      "totals": {
+        "statementsTotal": 67,
+        "branchesTotal": 51,
+        "functionsTotal": 11
+      }
+    },
+    {
+      "file": "src\\lib\\rag\\retrieval-pipeline.ts",
+      "statements": 60,
+      "branches": 88.89,
+      "functions": 41.67,
+      "lines": 60,
+      "totals": {
+        "statementsTotal": 15,
+        "branchesTotal": 9,
+        "functionsTotal": 12
+      }
+    },
+    {
+      "file": "src\\lib\\booking\\calendar.ts",
+      "statements": 61.4,
+      "branches": 60.42,
+      "functions": 57.14,
+      "lines": 61.4,
+      "totals": {
+        "statementsTotal": 57,
+        "branchesTotal": 48,
+        "functionsTotal": 7
+      }
+    },
+    {
+      "file": "src\\lib\\analytics\\scoring.ts",
+      "statements": 65.22,
+      "branches": 68.18,
+      "functions": 40,
+      "lines": 65.22,
+      "totals": {
+        "statementsTotal": 46,
+        "branchesTotal": 44,
+        "functionsTotal": 5
+      }
+    },
+    {
+      "file": "src\\lib\\security\\rag-guardrails.ts",
+      "statements": 67.44,
+      "branches": 60.71,
+      "functions": 66.67,
+      "lines": 67.44,
+      "totals": {
+        "statementsTotal": 43,
+        "branchesTotal": 28,
+        "functionsTotal": 6
+      }
+    },
+    {
+      "file": "src\\lib\\telemetry\\greetingTelemetry.ts",
+      "statements": 67.74,
+      "branches": 57.14,
+      "functions": 100,
+      "lines": 67.74,
+      "totals": {
+        "statementsTotal": 31,
+        "branchesTotal": 21,
+        "functionsTotal": 2
+      }
+    },
+    {
+      "file": "src\\lib\\citations.ts",
+      "statements": 69.23,
+      "branches": 51.61,
+      "functions": 100,
+      "lines": 69.23,
+      "totals": {
+        "statementsTotal": 13,
+        "branchesTotal": 31,
+        "functionsTotal": 3
+      }
+    },
+    {
+      "file": "src\\lib\\rag\\llm-factory.ts",
+      "statements": 74.42,
+      "branches": 70.27,
+      "functions": 83.33,
+      "lines": 74.42,
+      "totals": {
+        "statementsTotal": 43,
+        "branchesTotal": 37,
+        "functionsTotal": 6
+      }
+    },
+    {
+      "file": "src\\lib\\healthcare\\compliance.ts",
+      "statements": 76.09,
+      "branches": 83.33,
+      "functions": 100,
+      "lines": 76.09,
+      "totals": {
+        "statementsTotal": 46,
+        "branchesTotal": 42,
+        "functionsTotal": 4
+      }
+    },
+    {
+      "file": "src\\lib\\security\\redis-rate-limiter.ts",
+      "statements": 78.57,
+      "branches": 78.18,
+      "functions": 86.67,
+      "lines": 78.57,
+      "totals": {
+        "statementsTotal": 98,
+        "branchesTotal": 55,
+        "functionsTotal": 15
+      }
+    },
+    {
+      "file": "src\\lib\\rag\\tenant-isolation.ts",
+      "statements": 79.41,
+      "branches": 59.26,
+      "functions": 100,
+      "lines": 79.41,
+      "totals": {
+        "statementsTotal": 34,
+        "branchesTotal": 27,
+        "functionsTotal": 9
+      }
+    },
+    {
+      "file": "src\\lib\\recommendations\\engine.ts",
+      "statements": 80,
+      "branches": 50,
+      "functions": 66.67,
+      "lines": 80,
+      "totals": {
+        "statementsTotal": 5,
+        "branchesTotal": 10,
+        "functionsTotal": 3
+      }
+    },
+    {
+      "file": "src\\lib\\ingestion-job-status.ts",
+      "statements": 80,
+      "branches": 50,
+      "functions": 100,
+      "lines": 80,
+      "totals": {
+        "statementsTotal": 5,
+        "branchesTotal": 4,
+        "functionsTotal": 1
+      }
+    },
+    {
+      "file": "src\\lib\\realestate\\utils.ts",
+      "statements": 88.89,
+      "branches": 50,
+      "functions": 100,
+      "lines": 88.89,
+      "totals": {
+        "statementsTotal": 9,
+        "branchesTotal": 16,
+        "functionsTotal": 4
+      }
+    },
+    {
+      "file": "src\\lib\\rag\\llamaindex-adapters.ts",
+      "statements": 93.33,
+      "branches": 66.67,
+      "functions": 100,
+      "lines": 93.33,
+      "totals": {
+        "statementsTotal": 15,
+        "branchesTotal": 21,
+        "functionsTotal": 7
+      }
+    },
+    {
+      "file": "src\\lib\\rag\\batch-retriever.ts",
+      "statements": 95.12,
+      "branches": 70.37,
+      "functions": 100,
+      "lines": 95.12,
+      "totals": {
+        "statementsTotal": 41,
+        "branchesTotal": 27,
+        "functionsTotal": 11
+      }
+    },
+    {
+      "file": "src\\lib\\rag\\llamaindex-chunking.ts",
+      "statements": 95.24,
+      "branches": 84.62,
+      "functions": 66.67,
+      "lines": 95.24,
+      "totals": {
+        "statementsTotal": 21,
+        "branchesTotal": 13,
+        "functionsTotal": 3
+      }
+    },
+    {
+      "file": "src\\lib\\rag\\llamaindex-semantic-chunking.ts",
+      "statements": 95.65,
+      "branches": 75,
+      "functions": 66.67,
+      "lines": 95.65,
+      "totals": {
+        "statementsTotal": 23,
+        "branchesTotal": 16,
+        "functionsTotal": 3
+      }
+    },
+    {
+      "file": "src\\lib\\observability\\logger.ts",
+      "statements": 100,
+      "branches": 50,
+      "functions": 100,
+      "lines": 100,
+      "totals": {
+        "statementsTotal": 5,
+        "branchesTotal": 8,
+        "functionsTotal": 4
+      }
+    },
+    {
+      "file": "src\\lib\\rag\\llamaindex-token-chunking.ts",
+      "statements": 100,
+      "branches": 71.43,
+      "functions": 100,
+      "lines": 100,
+      "totals": {
+        "statementsTotal": 11,
+        "branchesTotal": 7,
+        "functionsTotal": 3
+      }
+    }
+  ]
+}

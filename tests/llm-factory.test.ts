@@ -6,7 +6,7 @@ describe('LLM Factory - GROQ', () => {
     process.env.BITB_LLM_PROVIDER = 'groq';
     process.env.GROQ_API_KEY = 'fake-key';
     process.env.GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
-    process.env.BITB_LLM_MODEL = 'llama-3.1-70b-instruct';
+    process.env.BITB_LLM_MODEL = 'llama-3.3-70b-versatile';
 
     global.fetch = vi.fn(async () => ({
       ok: true,

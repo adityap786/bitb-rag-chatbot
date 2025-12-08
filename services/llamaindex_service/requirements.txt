@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+llama-index
+chromadb
+openai
+python-dotenv
+pydantic
+httpx
+requests
+pytest
+pytest-asyncio
+sentence-transformers
+redis
+cachetools

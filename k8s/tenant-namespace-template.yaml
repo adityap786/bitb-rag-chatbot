@@ -1,0 +1,233 @@
+# Per-Tenant Namespace Template
+# Use this to create isolated namespaces for enterprise tenants
+# who require dedicated infrastructure
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bitb-tenant-{{ TENANT_ID }}
+  labels:
+    tenant_id: "{{ TENANT_ID }}"
+    isolation_level: "dedicated"
+    compliance: "iso-27001"
+    app: "bitb-rag-chatbot"
+
+---
+# Tenant-specific Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tenant-secrets
+  namespace: bitb-tenant-{{ TENANT_ID }}
+type: Opaque
+stringData:
+  TENANT_ID: "{{ TENANT_ID }}"
+  SUPABASE_URL: "{{ SUPABASE_URL }}"
+  SUPABASE_SERVICE_ROLE_KEY: "{{ SUPABASE_SERVICE_ROLE_KEY }}"
+  OPENAI_API_KEY: "{{ OPENAI_API_KEY }}"
+  GROQ_API_KEY: "{{ GROQ_API_KEY }}"
+  REDIS_URL: "redis://redis-{{ TENANT_ID }}.bitb-tenant-{{ TENANT_ID }}.svc.cluster.local:6379"
+
+---
+# Tenant-specific Redis instance
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-{{ TENANT_ID }}
+  namespace: bitb-tenant-{{ TENANT_ID }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+      tenant_id: "{{ TENANT_ID }}"
+  template:
+    metadata:
+      labels:
+        app: redis
+        tenant_id: "{{ TENANT_ID }}"
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "50m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-{{ TENANT_ID }}
+  namespace: bitb-tenant-{{ TENANT_ID }}
+spec:
+  selector:
+    app: redis
+    tenant_id: "{{ TENANT_ID }}"
+  ports:
+  - port: 6379
+    targetPort: 6379
+  type: ClusterIP
+
+---
+# Tenant-specific Application Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bitb-rag-{{ TENANT_ID }}
+  namespace: bitb-tenant-{{ TENANT_ID }}
+  labels:
+    app: bitb-rag-chatbot
+    tenant_id: "{{ TENANT_ID }}"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: bitb-rag-chatbot
+      tenant_id: "{{ TENANT_ID }}"
+  template:
+    metadata:
+      labels:
+        app: bitb-rag-chatbot
+        tenant_id: "{{ TENANT_ID }}"
+    spec:
+      containers:
+      - name: bitb-rag-chatbot
+        image: bitb-rag-chatbot:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: TENANT_ID
+          valueFrom:
+            secretKeyRef:
+              name: tenant-secrets
+              key: TENANT_ID
+        - name: SUPABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: tenant-secrets
+              key: SUPABASE_URL
+        - name: SUPABASE_SERVICE_ROLE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: tenant-secrets
+              key: SUPABASE_SERVICE_ROLE_KEY
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: tenant-secrets
+              key: OPENAI_API_KEY
+        - name: GROQ_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: tenant-secrets
+              key: GROQ_API_KEY
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: tenant-secrets
+              key: REDIS_URL
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          allowPrivilegeEscalation: false
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bitb-rag-{{ TENANT_ID }}-service
+  namespace: bitb-tenant-{{ TENANT_ID }}
+spec:
+  selector:
+    app: bitb-rag-chatbot
+    tenant_id: "{{ TENANT_ID }}"
+  ports:
+  - port: 80
+    targetPort: 3000
+  type: LoadBalancer
+
+---
+# Strict Network Policy for tenant isolation
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tenant-{{ TENANT_ID }}-isolation
+  namespace: bitb-tenant-{{ TENANT_ID }}
+spec:
+  podSelector:
+    matchLabels:
+      tenant_id: "{{ TENANT_ID }}"
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 3000
+  egress:
+  # Allow traffic only within same namespace
+  - to:
+    - podSelector:
+        matchLabels:
+          tenant_id: "{{ TENANT_ID }}"
+  # Allow external API calls (Supabase, OpenAI, etc.)
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 5432
+  # Deny all other traffic
+  - to: []
+
+---
+# Resource Quota for tenant
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: tenant-{{ TENANT_ID }}-quota
+  namespace: bitb-tenant-{{ TENANT_ID }}
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: "4Gi"
+    limits.cpu: "4"
+    limits.memory: "8Gi"
+    persistentvolumeclaims: "5"
+    pods: "20"
+
+---
+# Limit Range for tenant pods
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: tenant-{{ TENANT_ID }}-limits
+  namespace: bitb-tenant-{{ TENANT_ID }}
+spec:
+  limits:
+  - max:
+      cpu: "2"
+      memory: "4Gi"
+    min:
+      cpu: "50m"
+      memory: "64Mi"
+    type: Container

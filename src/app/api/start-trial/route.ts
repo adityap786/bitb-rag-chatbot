@@ -15,7 +15,7 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-export async function POST(request: NextRequest) {
+export async function POST(request: any, context: { params: Promise<{}> }) {
   try {
     const body = await request.json();
     const {
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
         display_name,
         theme: theme || {},
         llm_provider: llm_provider || process.env.BITB_LLM_PROVIDER || 'groq',
-        llm_model: llm_model || process.env.BITB_LLM_MODEL || 'llama-3.1-70b-instruct',
+        llm_model: llm_model || process.env.BITB_LLM_MODEL || 'llama-3.3-70b-versatile',
         created_at,
         expires_at,
         status: 'active',
@@ -79,9 +79,21 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // TODO: Start ingestion job
-    // const job_id = await startIngestionJob(tenant_id, data_source);
-    const job_id = 'job_' + randomBytes(8).toString('hex');
+    // Start ingestion job by calling /api/ingest internally
+    let job_id = 'job_' + randomBytes(8).toString('hex');
+    try {
+      const ingestRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/ingest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenant_id, trial_token, data_source })
+      });
+      const ingestData = await ingestRes.json();
+      if (ingestRes.ok && ingestData.job_id) {
+        job_id = ingestData.job_id;
+      }
+    } catch (err) {
+      console.error('Failed to start ingestion job automatically:', err);
+    }
 
     // Generate embed code
     const widgetUrl = process.env.NEXT_PUBLIC_WIDGET_URL || 'https://bitb.ltd';
