@@ -4,7 +4,8 @@
     "version": "0.1.0",
     "private": true,
     "scripts": {
-        "dev": "next dev --turbopack",
+        "dev": "next dev",
+        "dev:turbopack": "next dev --turbopack",
         "build": "next build",
         "build:check": "npm run typecheck && npm run lint && npm run build",
         "start": "next start",
