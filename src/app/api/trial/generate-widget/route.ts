@@ -72,13 +72,27 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
 
     // Check if RAG pipeline is ready, if not trigger build
     if (tenant.rag_status !== 'ready') {
+      // Create ingestion job for tracking
+      const { data: job } = await supabase
+        .from('ingestion_jobs')
+        .insert({
+          tenant_id: tenantId,
+          data_source: 'manual', // Defaulting to manual as this is the trigger point
+          status: 'queued',
+          progress: 0
+        })
+        .select('job_id')
+        .single();
+      
+      const jobId = job?.job_id;
+
       // Trigger RAG pipeline build asynchronously
       buildRAGPipeline(tenantId, {
         tenantId,
-        chunkSize: 512,
-        chunkOverlap: 50,
-        embeddingModel: 'text-embedding-ada-002',
-      }).catch(error => {
+        chunkSize: 1024, // Optimized for MPNet
+        chunkOverlap: 100,
+        embeddingModel: 'all-mpnet-base-v2',
+      }, jobId).catch(error => {
         console.error('RAG pipeline build failed:', error);
       });
 
@@ -86,6 +100,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
         status: 'processing',
         message: 'Widget is being prepared. This may take 2-5 minutes. Please check back shortly.',
         tenantId,
+        jobId,
       });
     }
 

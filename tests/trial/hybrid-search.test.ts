@@ -2,21 +2,28 @@ import { describe, it, expect, vi } from 'vitest';
 
 // Vitest hoists vi.mock, so mocks must be at the top
 vi.mock('@/lib/supabase-client', () => ({
-  createLazyServiceClient: () => ({
-    rpc: vi.fn().mockResolvedValue({ data: [
-      { embedding_id: 'e1', kb_id: 'kb1', chunk_text: 'vector match text', similarity: 0.9, metadata: {} },
-      { embedding_id: 'e2', kb_id: 'kb2', chunk_text: 'vector match text 2', similarity: 0.7, metadata: {} },
-    ], error: null }),
-    from: vi.fn().mockReturnThis(),
-    select: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockReturnThis(),
-    ilike: vi.fn().mockReturnThis(),
-    range: vi.fn().mockReturnThis(),
-    mockResolvedValue: vi.fn().mockResolvedValue({ data: [
-      { kb_id: 'kb2', raw_text: 'fallback text match', metadata: {} },
-      { kb_id: 'kb3', raw_text: 'another fallback', metadata: {} },
-    ], error: null }),
-  }),
+  createLazyServiceClient: () => {
+    const mockClient = {
+      rpc: vi.fn().mockResolvedValue({ data: [
+        { embedding_id: 'e1', kb_id: 'kb1', chunk_text: 'vector match text', similarity: 0.9, metadata: {} },
+        { embedding_id: 'e2', kb_id: 'kb2', chunk_text: 'vector match text 2', similarity: 0.7, metadata: {} },
+      ], error: null }),
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            ilike: vi.fn().mockReturnValue({
+              range: vi.fn().mockResolvedValue({ data: [
+                { kb_id: 'kb2', raw_text: 'fallback text match', metadata: {} },
+                { kb_id: 'kb3', raw_text: 'another fallback', metadata: {} },
+              ], error: null })
+            })
+          })
+        })
+      })
+    };
+    return mockClient;
+  },
+  setTenantContext: vi.fn().mockResolvedValue(undefined),
 }));
 
 

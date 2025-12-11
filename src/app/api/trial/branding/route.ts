@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verify } from 'jsonwebtoken';
 import type { BrandingRequest, WidgetConfig } from '@/types/trial';
 import { assignTools, analyzeKnowledgeBase, generatePromptTemplate } from '@/lib/trial/tool-assignment';
 import {
@@ -16,6 +15,7 @@ import {
 import { verifyBearerToken, verifyTenantOwnership } from '@/lib/trial/auth';
 import TrialLogger from '@/lib/trial/logger';
 import { createLazyServiceClient } from '@/lib/supabase-client';
+import { startTenantPipeline } from '@/lib/trial/start-pipeline';
 
 const supabase = createLazyServiceClient();
 
@@ -38,6 +38,13 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
 
     const { tenantId } = token;
     const body = await req.json();
+    const platform = typeof body.platform === 'string' ? body.platform.slice(0, 64) : null;
+    const framework = typeof body.framework === 'string' ? body.framework.slice(0, 64) : null;
+    const hosting = typeof body.hosting === 'string' ? body.hosting.slice(0, 128) : null;
+    const logoUrl = typeof body.logoUrl === 'string' ? body.logoUrl.slice(0, 512) : null;
+    const knowledgeBaseSources = Array.isArray(body.knowledgeBaseSources)
+      ? (body.knowledgeBaseSources as string[]).slice(0, 20)
+      : null;
 
     // Validate inputs
     try {
@@ -113,6 +120,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
           welcome_message: body.welcomeMessage || 'Hello! How can I help you today?',
           assigned_tools: tools,
           prompt_template: promptTemplate,
+          avatar_url: logoUrl,
         })
         .eq('tenant_id', tenantId)
         .select()
@@ -136,6 +144,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
           welcome_message: body.welcomeMessage || 'Hello! How can I help you today?',
           assigned_tools: tools,
           prompt_template: promptTemplate,
+          avatar_url: logoUrl,
         })
         .select()
         .single();
@@ -148,6 +157,34 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
       TrialLogger.logModification('widget_config', 'create', config.config_id, tenantId, { requestId });
     }
 
+    // Trigger pipeline build automatically after branding
+    let pipelineJobId: string | null = null;
+    let pipelineStartedAt: string | null = null;
+    try {
+      const pipeline = await startTenantPipeline(tenantId, {
+        source: 'branding',
+        metadata: {
+          trigger: 'branding',
+          businessType: tenant.business_type,
+          platform,
+          framework,
+          hosting,
+          logoUrl,
+          knowledgeBaseSources,
+          primaryColor: body.primaryColor,
+          secondaryColor: body.secondaryColor,
+          tone: body.tone,
+          welcomeMessage: body.welcomeMessage,
+        },
+        skipIfProcessing: true,
+      });
+      pipelineJobId = pipeline.jobId;
+      pipelineStartedAt = pipeline.startedAt ?? null;
+    } catch (err) {
+      // Non-fatal: allow frontend to retry
+      TrialLogger.warn('Failed to auto-start pipeline after branding', { requestId, tenantId, error: (err as Error).message });
+    }
+
     TrialLogger.logRequest('POST', '/api/trial/branding', 200, Date.now() - startTime, { requestId, tenantId });
 
     return NextResponse.json({
@@ -157,7 +194,17 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
         secondaryColor: config.secondary_color,
         tone: config.chat_tone,
         welcomeMessage: config.welcome_message,
+        logoUrl: logoUrl || config.avatar_url || null,
+        platform,
+        framework,
+        hosting,
+        knowledgeBaseSources,
         assignedTools: config.assigned_tools,
+      },
+      pipeline: {
+        status: pipelineJobId ? 'processing' : tenant.rag_status,
+        jobId: pipelineJobId,
+        startedAt: pipelineStartedAt,
       },
     });
   } catch (error) {

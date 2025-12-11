@@ -87,6 +87,14 @@ export function getServiceClient(): SupabaseClient {
 }
 
 /**
+ * Helper to set the tenant context for RLS
+ * Must be called before executing queries that rely on RLS policies using app.current_tenant_id
+ */
+export async function setTenantContext(client: SupabaseClient, tenantId: string) {
+  await client.rpc('set_tenant_context', { p_tenant_id: tenantId });
+}
+
+/**
  * Create a lazy proxy client (alternative approach)
  * 
  * Returns a Proxy that constructs the real client only when methods are accessed.

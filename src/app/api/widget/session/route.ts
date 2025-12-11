@@ -11,7 +11,8 @@ const supabase = createLazyServiceClient();
 
 // Zod schema for input validation
 const sessionInitSchema = z.object({
-  tenantId: z.string().regex(/^tn_[a-z0-9]{5,32}$/i),
+  // Enforce production tenant format: tn_ + 32 lowercase hex chars
+  tenantId: z.string().regex(/^tn_[a-f0-9]{32}$/),
   visitorId: z.string().min(6),
   referrer: z.string().optional(),
 });

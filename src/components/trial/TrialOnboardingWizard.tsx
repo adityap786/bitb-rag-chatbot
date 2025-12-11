@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Spinner } from '@/components/ui/spinner';
 import { CheckCircle2, Upload, Globe, FileText, Palette, Code } from 'lucide-react';
+import ContinueWithLoader from './ContinueWithLoader';
 
 type BusinessType = 'service' | 'ecommerce' | 'saas' | 'other';
 
@@ -58,6 +59,67 @@ export default function TrialOnboardingWizard() {
   const [error, setError] = useState<string | null>(null);
   const [kbMethod, setKbMethod] = useState<'upload' | 'manual'>('manual');
   const [companyInfo, setCompanyInfo] = useState('');
+  const [platform, setPlatform] = useState('playground');
+  const [knowledgeBaseSources, setKnowledgeBaseSources] = useState<string[]>([]);
+  const [framework, setFramework] = useState('react');
+  const [hosting, setHosting] = useState('');
+  const [logoUrl, setLogoUrl] = useState('');
+
+  // Ingestion Polling State
+  const [ingestionJobId, setIngestionJobId] = useState<string | null>(null);
+  const [ingestionProgress, setIngestionProgress] = useState(0);
+  const [ingestionStatus, setIngestionStatus] = useState<string | null>(null);
+  const [trialExpired, setTrialExpired] = useState(false);
+  const [trialExpiryMessage, setTrialExpiryMessage] = useState<string | null>(null);
+
+  // Polling Effect
+  useEffect(() => {
+    if (!ingestionJobId || ingestionStatus === 'completed' || ingestionStatus === 'failed') return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/trial/ingestion-status?jobId=${ingestionJobId}`, {
+          headers: {
+            'Authorization': `Bearer ${state.setupToken}`,
+          },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setIngestionProgress(data.progress);
+          setIngestionStatus(data.status);
+          
+          if (data.status === 'completed') {
+             // Auto-retry generation to get the code
+             handleGenerateWidget(); 
+          } else if (data.status === 'failed') {
+             setError(data.error_message || 'Ingestion failed');
+             setLoading(false);
+             setIngestionStatus('failed');
+          }
+        } else if (res.status === 401 || res.status === 403) {
+          // Token expired or invalid
+          setError('Session expired. Please refresh the page.');
+          setLoading(false);
+          setIngestionStatus('failed');
+          setTrialExpired(true);
+          setTrialExpiryMessage('Session expired during ingestion. Refresh to restart.');
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [ingestionJobId, ingestionStatus]);
+
+  useEffect(() => {
+    if (!state.trialExpiresAt) return;
+    const expiresAt = new Date(state.trialExpiresAt);
+    if (expiresAt < new Date()) {
+      setTrialExpired(true);
+      setTrialExpiryMessage('Your trial window has ended. Refresh or upgrade to continue.');
+    }
+  }, [state.trialExpiresAt]);
 
   // Step 1: Start Trial
   const handleStartTrial = async (e: React.FormEvent) => {
@@ -89,6 +151,8 @@ export default function TrialOnboardingWizard() {
         trialExpiresAt: data.trialExpiresAt,
         step: 2,
       }));
+      setTrialExpired(false);
+      setTrialExpiryMessage(null);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -110,7 +174,7 @@ export default function TrialOnboardingWizard() {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${state.setupToken}`,
           },
-          body: JSON.stringify({ companyInfo }),
+            body: JSON.stringify({ companyInfo, knowledgeBaseSources }),
         });
 
         if (!response.ok) {
@@ -119,12 +183,60 @@ export default function TrialOnboardingWizard() {
         }
       }
 
+      // Advance to branding step after saving KB
       setState(prev => ({ ...prev, step: 3 }));
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
+  };
+
+  // Trigger the RAG pipeline once onboarding inputs are present
+  const triggerPipeline = async () => {
+    if (!state.tenantId || !state.setupToken) return;
+    try {
+      const res = await fetch(`/api/tenants/${state.tenantId}/ingest`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${state.setupToken}`,
+        },
+        body: JSON.stringify({
+          source: kbMethod,
+          metadata: {
+            platform,
+            businessType: state.businessType,
+            framework,
+            hosting,
+            logoUrl,
+            knowledgeBaseSources,
+          },
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.runId) {
+        setIngestionJobId(data.runId);
+        setIngestionStatus('processing');
+        setIngestionProgress(0);
+      } else if (res.status === 409) {
+        setIngestionStatus('processing');
+      } else if (data?.error) {
+        setError(data.error);
+        setIngestionStatus('failed'); // Ensure we don't get stuck in processing
+      }
+    } catch (err: any) {
+      setError(err.message);
+      setIngestionStatus('failed');
+    }
+  };
+
+  // Loader completion handler for KB step
+  const handleKBLoaderComplete = () => {
+    setIngestionStatus('completed');
+    setIngestionProgress(100);
+    setState(prev => ({ ...prev, step: 3 }));
   };
 
   // Step 3: Configure Branding
@@ -145,6 +257,11 @@ export default function TrialOnboardingWizard() {
           secondaryColor: state.secondaryColor,
           tone: state.chatTone,
           welcomeMessage: state.welcomeMessage,
+          platform,
+          framework,
+          hosting,
+          logoUrl,
+          knowledgeBaseSources,
         }),
       });
 
@@ -154,11 +271,42 @@ export default function TrialOnboardingWizard() {
       }
 
       const data = await response.json();
-      setState(prev => ({
-        ...prev,
-        assignedTools: data.config.assignedTools,
-        step: 4,
-      }));
+      const pipelineStatus = data.pipeline?.status;
+      const pipelineJobId = data.pipeline?.jobId ?? null;
+
+      if (pipelineStatus === 'processing') {
+        if (pipelineJobId) {
+          setIngestionJobId(pipelineJobId);
+        } else {
+          // Start a new pipeline if the backend did not return a job id
+          await triggerPipeline();
+        }
+        setIngestionStatus('processing');
+        setIngestionProgress(0);
+        setState(prev => ({
+          ...prev,
+          assignedTools: data.config.assignedTools,
+          step: 3,
+        }));
+      } else if (pipelineStatus === 'ready') {
+        setIngestionStatus('completed');
+        setIngestionProgress(100);
+        setState(prev => ({
+          ...prev,
+          assignedTools: data.config.assignedTools,
+          step: 4,
+        }));
+      } else {
+        // Pipeline not running yet or in a recoverable state, start it and keep user on branding loader
+        await triggerPipeline();
+        setIngestionStatus('processing');
+        setIngestionProgress(0);
+        setState(prev => ({
+          ...prev,
+          assignedTools: data.config.assignedTools,
+          step: 3,
+        }));
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -170,6 +318,8 @@ export default function TrialOnboardingWizard() {
   const handleGenerateWidget = async () => {
     setLoading(true);
     setError(null);
+    setTrialExpired(false);
+    setTrialExpiryMessage(null);
 
     try {
       const response = await fetch('/api/trial/generate-widget', {
@@ -180,25 +330,72 @@ export default function TrialOnboardingWizard() {
         },
       });
 
-      if (!response.ok) {
-        const data = await response.json();
-        if (data.status === 'processing') {
-          setError(data.message);
-          return;
-        }
-        throw new Error(data.error || 'Failed to generate widget');
+      let data: any = null;
+      try {
+        data = await response.json();
+      } catch {
+        data = null;
       }
 
-      const data = await response.json();
+      if (response.status === 401 || response.status === 403) {
+        const message = data?.error || 'Session expired while generating the widget.';
+        setTrialExpired(true);
+        setTrialExpiryMessage(message);
+        setError(message);
+        setIngestionStatus('failed');
+        setLoading(false);
+        return;
+      }
+
+      if (!response.ok) {
+        if (data?.status === 'processing') {
+          setIngestionJobId(data.jobId);
+          setIngestionStatus('processing');
+          return;
+        }
+        throw new Error(data?.error || 'Failed to generate widget');
+      }
+
+      if (!data) {
+        throw new Error('Failed to parse widget response');
+      }
+
       setState(prev => ({
         ...prev,
         embedCode: data.embedCode,
         assignedTools: data.assignedTools,
       }));
+      // Clear ingestion state on success
+      setIngestionJobId(null);
+      setIngestionStatus('completed');
     } catch (err: any) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      // Only stop loading if we are not processing
+      if (ingestionStatus !== 'processing') {
+        setLoading(false);
+      }
+    }
+  };
+
+  const handleLoaderProgress = (value: number) => {
+    setIngestionProgress(value);
+  };
+
+  const handleLoaderComplete = () => {
+    setIngestionStatus('completed');
+    setIngestionProgress(100);
+    setState(prev => ({ ...prev, step: 4 }));
+    handleGenerateWidget();
+  };
+
+  const handleLoaderFailure = (message: string) => {
+    setError(message);
+    setIngestionStatus('failed');
+    setLoading(false);
+    if (message.toLowerCase().includes('session expired')) {
+      setTrialExpired(true);
+      setTrialExpiryMessage(message);
     }
   };
 
@@ -313,7 +510,7 @@ export default function TrialOnboardingWizard() {
                   value={state.businessType}
                   onValueChange={(value: BusinessType) => setState(prev => ({ ...prev, businessType: value }))}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="businessType">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -341,28 +538,66 @@ export default function TrialOnboardingWizard() {
           <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 30 }} transition={{ duration: 0.5 }}>
           <Card className="p-8 glassmorphism-card">
             <h2 className="text-2xl font-bold mb-6">Add Your Knowledge Base</h2>
-            <form onSubmit={handleKBSubmit} className="space-y-4">
-              <div>
-                <Label htmlFor="companyInfo">Company Information</Label>
-                <Textarea
-                  id="companyInfo"
-                  value={companyInfo}
-                  onChange={(e) => setCompanyInfo(e.target.value)}
-                  placeholder="Tell us about your company, products, services, and common questions..."
-                  rows={8}
-                  maxLength={10000}
-                  required
-                />
-                <p className="text-sm text-gray-500 mt-1">
-                  {companyInfo.length} / 10,000 characters
-                </p>
-              </div>
+            {ingestionStatus === 'processing' ? (
+              <ContinueWithLoader
+                loading={true}
+                progress={ingestionProgress}
+                jobId={ingestionJobId}
+                tenantId={state.tenantId}
+                setupToken={state.setupToken}
+                expired={trialExpired}
+                expirationMessage={trialExpiryMessage}
+                onUpgrade={() => window.location.reload()}
+                upgradeUrl="https://bitb.ltd/subscription"
+                onLoaderComplete={handleKBLoaderComplete}
+                onLoaderFailure={handleLoaderFailure}
+                onLoaderProgress={handleLoaderProgress}
+              />
+            ) : (
+              <form onSubmit={handleKBSubmit} className="space-y-4">
+                <div>
+                  <Label htmlFor="companyInfo">Company Information</Label>
+                  <Textarea
+                    id="companyInfo"
+                    value={companyInfo}
+                    onChange={(e) => setCompanyInfo(e.target.value)}
+                    placeholder="Tell us about your company, products, services, and common questions..."
+                    rows={8}
+                    maxLength={10000}
+                    required
+                  />
+                  <p className="text-sm text-gray-500 mt-1">
+                    {companyInfo.length} / 10,000 characters
+                  </p>
+                </div>
 
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? <Spinner className="mr-2" /> : null}
-                Continue to Branding
-              </Button>
-            </form>
+                <div>
+                  <Label>Knowledge Base Sources</Label>
+                  <div className="grid grid-cols-2 gap-2 mt-2 text-sm text-gray-200">
+                    {['docs', 'urls', 'csv', 'google_drive', 'notion', 'zendesk', 'crm_export'].map((src) => (
+                      <label key={src} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={knowledgeBaseSources.includes(src)}
+                          onChange={(e) => {
+                            setKnowledgeBaseSources((prev) => {
+                              if (e.target.checked) return Array.from(new Set([...prev, src]));
+                              return prev.filter((item) => item !== src);
+                            });
+                          }}
+                        />
+                        <span className="capitalize">{src.replace('_', ' ')}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <Button type="submit" className="w-full" disabled={loading}>
+                  {loading ? <Spinner className="mr-2" /> : null}
+                  Continue to Branding
+                </Button>
+              </form>
+            )}
           </Card>
           </motion.div>
         )}
@@ -374,61 +609,135 @@ export default function TrialOnboardingWizard() {
           <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 30 }} transition={{ duration: 0.5 }}>
           <Card className="p-8 glassmorphism-card">
             <h2 className="text-2xl font-bold mb-6">Customize Your Chatbot</h2>
-            <form onSubmit={handleBrandingSubmit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+            {ingestionStatus === 'processing' ? (
+              <ContinueWithLoader
+                loading={true}
+                progress={ingestionProgress}
+                jobId={ingestionJobId}
+                tenantId={state.tenantId}
+                setupToken={state.setupToken}
+                expired={trialExpired}
+                expirationMessage={trialExpiryMessage}
+                onUpgrade={() => window.location.reload()}
+                upgradeUrl="https://bitb.ltd/subscription"
+                onLoaderComplete={handleLoaderComplete}
+                onLoaderFailure={handleLoaderFailure}
+                onLoaderProgress={handleLoaderProgress}
+              />
+            ) : (
+              <form onSubmit={handleBrandingSubmit} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="primaryColor">Primary Color</Label>
+                    <Input
+                      id="primaryColor"
+                      type="color"
+                      value={state.primaryColor}
+                      onChange={(e) => setState(prev => ({ ...prev, primaryColor: e.target.value }))}
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="secondaryColor">Secondary Color</Label>
+                    <Input
+                      id="secondaryColor"
+                      type="color"
+                      value={state.secondaryColor}
+                      onChange={(e) => setState(prev => ({ ...prev, secondaryColor: e.target.value }))}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="framework">Framework</Label>
+                    <Select value={framework} onValueChange={setFramework as any}>
+                      <SelectTrigger id="framework">
+                        <SelectValue placeholder="Select framework" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="react">React</SelectItem>
+                        <SelectItem value="nextjs">Next.js</SelectItem>
+                        <SelectItem value="svelte">Svelte</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="hosting">Hosting Provider</Label>
+                    <Input
+                      id="hosting"
+                      value={hosting}
+                      onChange={(e) => setHosting(e.target.value)}
+                      placeholder="Vercel, AWS, Netlify, Render..."
+                    />
+                  </div>
+                </div>
+
                 <div>
-                  <Label htmlFor="primaryColor">Primary Color</Label>
-                  <Input
-                    id="primaryColor"
-                    type="color"
-                    value={state.primaryColor}
-                    onChange={(e) => setState(prev => ({ ...prev, primaryColor: e.target.value }))}
+                  <Label htmlFor="chatTone">Chat Tone</Label>
+                  <Select
+                    value={state.chatTone}
+                    onValueChange={(value: any) => setState(prev => ({ ...prev, chatTone: value }))}
+                  >
+                    <SelectTrigger id="chatTone">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="professional">Professional</SelectItem>
+                      <SelectItem value="friendly">Friendly</SelectItem>
+                      <SelectItem value="casual">Casual</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label htmlFor="welcomeMessage">Welcome Message</Label>
+                  <Textarea
+                    id="welcomeMessage"
+                    value={state.welcomeMessage}
+                    onChange={(e) => setState(prev => ({ ...prev, welcomeMessage: e.target.value }))}
+                    rows={2}
                   />
                 </div>
 
                 <div>
-                  <Label htmlFor="secondaryColor">Secondary Color</Label>
+                  <Label htmlFor="logoUrl">Logo (optional)</Label>
                   <Input
-                    id="secondaryColor"
-                    type="color"
-                    value={state.secondaryColor}
-                    onChange={(e) => setState(prev => ({ ...prev, secondaryColor: e.target.value }))}
+                    id="logoUrl"
+                    value={logoUrl}
+                    onChange={(e) => setLogoUrl(e.target.value)}
+                    placeholder="https://...logo.png"
                   />
                 </div>
-              </div>
 
-              <div>
-                <Label htmlFor="chatTone">Chat Tone</Label>
-                <Select
-                  value={state.chatTone}
-                  onValueChange={(value: any) => setState(prev => ({ ...prev, chatTone: value }))}
+                <div>
+                  <Label htmlFor="platform">Platform</Label>
+                  <Select value={platform} onValueChange={setPlatform}>
+                    <SelectTrigger id="platform">
+                      <SelectValue placeholder="Select platform" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="playground">Playground</SelectItem>
+                      <SelectItem value="website">Website / Web App</SelectItem>
+                      <SelectItem value="shopify">Shopify</SelectItem>
+                      <SelectItem value="wordpress">WordPress</SelectItem>
+                      <SelectItem value="framer">Framer</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <button
+                  data-slot="button"
+                  className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive shadow-xs hover:bg-primary/90 h-9 px-4 py-2 has-[>svg]:px-3 w-full bg-white text-black font-bold mt-6"
+                  type="submit"
+                  disabled={loading}
                 >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="professional">Professional</SelectItem>
-                    <SelectItem value="friendly">Friendly</SelectItem>
-                    <SelectItem value="casual">Casual</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label htmlFor="welcomeMessage">Welcome Message</Label>
-                <Textarea
-                  id="welcomeMessage"
-                  value={state.welcomeMessage}
-                  onChange={(e) => setState(prev => ({ ...prev, welcomeMessage: e.target.value }))}
-                  rows={2}
-                />
-              </div>
-
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? <Spinner className="mr-2" /> : null}
-                Continue to Widget
-              </Button>
-            </form>
+                  Continue
+                </button>
+              </form>
+            )}
           </Card>
           </motion.div>
         )}
@@ -441,7 +750,22 @@ export default function TrialOnboardingWizard() {
           <Card className="p-8 glassmorphism-card">
             <h2 className="text-2xl font-bold mb-6">Your Chatbot is Ready!</h2>
 
-            {!state.embedCode ? (
+            {ingestionStatus === 'processing' ? (
+              <ContinueWithLoader 
+                loading={true}
+                progress={ingestionProgress}
+                jobId={ingestionJobId}
+                tenantId={state.tenantId}
+                setupToken={state.setupToken}
+                expired={trialExpired}
+                expirationMessage={trialExpiryMessage}
+                onUpgrade={() => window.location.reload()}
+                upgradeUrl="https://bitb.ltd/subscription"
+                onLoaderComplete={handleLoaderComplete}
+                onLoaderFailure={handleLoaderFailure}
+                onLoaderProgress={handleLoaderProgress}
+              />
+            ) : !state.embedCode ? (
               <Button onClick={handleGenerateWidget} className="w-full mb-4" disabled={loading}>
                 {loading ? <Spinner className="mr-2" /> : null}
                 Generate Widget Code

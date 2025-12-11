@@ -1,21 +1,18 @@
 import { ExternalServiceError } from './errors';
-import axios from 'axios';
+import { generateEmbeddings as generateEmbeddingsBatched } from '../embeddings/batched-generator';
 
 /**
- * Generate embeddings using local BGE embedding service
+ * Generate embeddings using optimized batched pipeline
  * @throws ExternalServiceError if embedding service fails
+ * 
+ * @deprecated Use generateEmbeddingsBatched from @/lib/embeddings/batched-generator for better performance
  */
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
 
   try {
-    const serviceUrl = process.env.BGE_EMBEDDING_SERVICE_URL || 'http://localhost:8000';
-    const response = await axios.post(`${serviceUrl}/embed-batch`, { texts });
-    if (Array.isArray(response.data.embeddings)) {
-      return response.data.embeddings;
-    }
-    throw new ExternalServiceError('BGE', 'Invalid embedding response from BGE service');
+    return await generateEmbeddingsBatched(texts);
   } catch (error: any) {
-    throw new ExternalServiceError('BGE', error.message || 'Failed to generate embeddings');
+    throw new ExternalServiceError('MPNet', error.message || 'Failed to generate embeddings');
   }
 }

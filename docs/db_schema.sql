@@ -114,3 +114,73 @@ CREATE POLICY tenant_isolation ON knowledge_base
 
 -- Automated backup schedule and connection pooling are configured in Supabase dashboard.
 -- Query performance monitoring is enabled via Supabase/pg_stat_statements.
+
+-- ingestion_jobs
+CREATE TABLE IF NOT EXISTS ingestion_jobs (
+  job_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID REFERENCES trial_tenants(tenant_id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'queued',
+  data_source TEXT NOT NULL,
+  progress INT DEFAULT 0,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ingestion_jobs_tenant_id ON ingestion_jobs(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_ingestion_jobs_status ON ingestion_jobs(status);
+
+-- ingestion_job_steps
+CREATE TABLE IF NOT EXISTS ingestion_job_steps (
+  step_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id UUID REFERENCES ingestion_jobs(job_id) ON DELETE CASCADE,
+  step_key TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  started_at TIMESTAMP,
+  completed_at TIMESTAMP,
+  eta_ms INT,
+  message TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(job_id, step_key)
+);
+CREATE INDEX IF NOT EXISTS idx_ingestion_job_steps_job_id ON ingestion_job_steps(job_id);
+
+
+-- Add columns to ingestion_jobs
+ALTER TABLE ingestion_jobs ADD COLUMN IF NOT EXISTS pages_processed INT DEFAULT 0;
+ALTER TABLE ingestion_jobs ADD COLUMN IF NOT EXISTS chunks_created INT DEFAULT 0;
+ALTER TABLE ingestion_jobs ADD COLUMN IF NOT EXISTS embeddings_count INT DEFAULT 0;
+ALTER TABLE ingestion_jobs ADD COLUMN IF NOT EXISTS error_message TEXT;
+ALTER TABLE ingestion_jobs ADD COLUMN IF NOT EXISTS error_details JSONB;
+
+-- match_embeddings function
+CREATE OR REPLACE FUNCTION match_embeddings(
+  query_embedding vector(768),
+  match_tenant UUID,
+  match_count INT DEFAULT 5,
+  similarity_threshold FLOAT DEFAULT 0.5
+)
+RETURNS TABLE (
+  embedding_id UUID,
+  kb_id UUID,
+  chunk_text TEXT,
+  similarity FLOAT,
+  metadata JSONB
+)
+LANGUAGE plpgsql
+AS \$\$
+BEGIN
+  RETURN QUERY
+  SELECT
+    e.embedding_id,
+    e.kb_id,
+    e.chunk_text,
+    1 - (e.embedding_768 <=> query_embedding) AS similarity,
+    e.metadata
+  FROM embeddings e
+  WHERE e.tenant_id = match_tenant
+  AND 1 - (e.embedding_768 <=> query_embedding) > similarity_threshold
+  ORDER BY e.embedding_768 <=> query_embedding
+  LIMIT match_count;
+END;
+\$\$;
+

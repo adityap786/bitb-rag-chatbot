@@ -1,5 +1,25 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { EcomReACTAgent, prefetchOnboardingData } from './ecomAgent';
+
+// Mock Redis client to prevent top-level throw when env vars are missing
+vi.mock('../redis-client-upstash', () => {
+  const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
+  const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+  if (redisUrl && redisToken) {
+    const { Redis } = require('@upstash/redis');
+    return {
+      upstashRedis: new Redis({ url: redisUrl, token: redisToken }),
+    };
+  }
+
+  return {
+    upstashRedis: {
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockResolvedValue('OK'),
+    }
+  };
+});
 
 describe('EcomReACTAgent Onboarding Flow', () => {
   const tenantId = 'tn_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';

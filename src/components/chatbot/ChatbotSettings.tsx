@@ -142,7 +142,7 @@ export const ChatbotSettings = ({ config, onConfigChange, onClose }: ChatbotSett
                     setLocalConfig({ ...localConfig, fontFamily: value })
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="fontFamily">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -163,7 +163,7 @@ export const ChatbotSettings = ({ config, onConfigChange, onClose }: ChatbotSett
                     setLocalConfig({ ...localConfig, theme: value })
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="theme">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -182,7 +182,7 @@ export const ChatbotSettings = ({ config, onConfigChange, onClose }: ChatbotSett
                     setLocalConfig({ ...localConfig, layout: value })
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="layout">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -201,7 +201,7 @@ export const ChatbotSettings = ({ config, onConfigChange, onClose }: ChatbotSett
                     setLocalConfig({ ...localConfig, position: value })
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="position">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -224,7 +224,7 @@ export const ChatbotSettings = ({ config, onConfigChange, onClose }: ChatbotSett
                     setLocalConfig({ ...localConfig, tone: value })
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="tone">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -244,7 +244,7 @@ export const ChatbotSettings = ({ config, onConfigChange, onClose }: ChatbotSett
                     setLocalConfig({ ...localConfig, language: value })
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="language">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

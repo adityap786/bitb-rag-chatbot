@@ -17,7 +17,7 @@ import { AuditLogger, AuditEventType } from './audit-logging.js';
  * Tenant ID format: tn_[32 hex chars]
  * Trial token format: tr_[32 hex chars]
  */
-const TENANT_ID_REGEX = /^tn_[a-f0-9]{32}$/;
+const TENANT_ID_REGEX = /^tn_[a-f0-9]{32}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TRIAL_TOKEN_REGEX = /^tr_[a-f0-9]{32}$/;
 
 export interface TenantAccessContext {

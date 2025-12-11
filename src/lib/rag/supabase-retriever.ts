@@ -64,11 +64,15 @@ export function validateTenantId(tenantId: string): void {
     throw new Error("SECURITY: tenant_id must be a string");
   }
 
-  // Format: tn_[32 hex chars]
-  const tenantIdRegex = /^tn_[a-f0-9]{32}$/;
-  if (!tenantIdRegex.test(tenantId)) {
+  // Accept tn_<hex32> or UUID to support legacy and new tenants
+  const tenantIdPatterns = [
+    /^tn_[a-f0-9]{32}$/i,
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+  ];
+  const valid = tenantIdPatterns.some((p) => p.test(tenantId));
+  if (!valid) {
     throw new Error(
-      `SECURITY: Invalid tenant_id format. Expected tn_[32 hex chars], got: ${tenantId.substring(0, 10)}...`
+      `SECURITY: Invalid tenant_id format. Expected tn_[32 hex chars] or uuid, got: ${tenantId.substring(0, 10)}...`
     );
   }
 }

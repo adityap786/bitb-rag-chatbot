@@ -126,6 +126,15 @@ describe('RedisRateLimiter', () => {
       expect(count).toBeGreaterThanOrEqual(0);
     });
 
+    it('should return 0 when clearing all rate limits with no keys', async () => {
+      // Ensure no rate limits exist
+      await limiter.clearAllRateLimits();
+
+      // Clear all again (should find no keys)
+      const count = await limiter.clearAllRateLimits();
+      expect(count).toBe(0);
+    });
+
     it('should get rate limit status', async () => {
       await limiter.checkRateLimit('tenant:123', testConfig);
 
@@ -157,12 +166,27 @@ describe('RedisRateLimiter', () => {
       expect(status.connected).toBe(true);
       expect(status.error).toBeNull();
     });
+
+    it('should fail health check and report error', async () => {
+      process.env.REDIS_FORCE_CONNECTION_FAILURE = 'true';
+
+      try {
+        const health = await limiter.healthCheck();
+
+        expect(health.healthy).toBe(false);
+        expect(health.error).toBeDefined();
+        expect(health.latency_ms).toBeUndefined();
+      } finally {
+        delete process.env.REDIS_FORCE_CONNECTION_FAILURE;
+      }
+    });
   });
 
   describe('Error Handling', () => {
     it('should handle Redis connection failure gracefully', async () => {
       // Create limiter without initializing (constructor takes no args)
       const failedLimiter = new RedisRateLimiter();
+      process.env.REDIS_FORCE_CONNECTION_FAILURE = 'true';
       
       try {
         await failedLimiter.initialize();
@@ -172,6 +196,7 @@ describe('RedisRateLimiter', () => {
 
       // Should deny requests when Redis is unavailable
       const result = await failedLimiter.checkRateLimit('tenant:123', testConfig);
+      delete process.env.REDIS_FORCE_CONNECTION_FAILURE;
       
       expect(result.allowed).toBe(false); // Deny for safety
       expect(result.remaining).toBe(0);

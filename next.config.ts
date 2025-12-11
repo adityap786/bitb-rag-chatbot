@@ -22,8 +22,22 @@ const nextConfig: NextConfig = {
     ],
   },
   outputFileTracingRoot: path.resolve(__dirname, '../../'),
-  // Note: custom Turbopack rules and `eslint` option removed for Next 16 compatibility.
-  // If you need custom loaders, reintroduce them after verifying Turbopack stability.
+  
+  // ====== BUILD STRATEGY ======
+  // DEVELOPMENT: Turbopack enabled via `npm run dev --turbopack` for fast refresh
+  // PRODUCTION: Webpack (default, implicit in `npm run build`)
+  //
+  // Rationale:
+  // - Turbopack: Experimental in Next 16, good for local DX but not battle-tested for production
+  // - Webpack: Proven, stable, reliable for production deployments
+  // - Custom loaders removed for Next 16 compatibility (can be reintroduced if needed)
+  // - This strategy ensures fast development while maintaining production stability
+  //
+  // To explicitly use webpack in production:
+  //   TURBOPACK_DISABLED=1 npm run build
+  //
+  // Avoid using Turbopack in production until it's stable (Next.js 17+)
+  // =============================
 };
 
 export default nextConfig;

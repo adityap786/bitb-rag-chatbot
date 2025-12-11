@@ -1134,6 +1134,9 @@
       if (!response.ok) throw new Error('Trial check failed');
       
       trialData = await response.json();
+      if (!trialData.valid) {
+        markTrialExpired(trialData.error || 'Trial token is invalid.');
+      }
       return trialData;
     } catch (error) {
       console.error('[BiTB] Trial validation error:', error);
@@ -1156,7 +1159,7 @@
     // Production mode - call API
     const trial = await checkTrial();
     if (!trial || !trial.valid) {
-      showUpgradeCTA();
+      markTrialExpired(trial?.error || 'Trial token is no longer valid.');
       return null;
     }
 
@@ -1179,10 +1182,23 @@
         })
       });
 
-      if (!response.ok) throw new Error('Query failed');
-      
-      const data = await response.json();
-      return data;
+      let payload = null;
+      try {
+        payload = await response.json();
+      } catch (err) {
+        // Some endpoints might not return JSON when unauthorized
+      }
+
+      if (response.status === 401 || response.status === 403) {
+        markTrialExpired(payload?.error || 'Trial expired or unauthorized.');
+        return null;
+      }
+
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Query failed');
+      }
+
+      return payload;
     } catch (error) {
       console.error('[BiTB] Query error:', error);
       return {
@@ -1469,6 +1485,9 @@
   }
 
   function showUpgradeCTA() {
+    if (document.getElementById('bitb-upgrade-cta')) {
+      return;
+    }
     const messagesDiv = document.getElementById('bitb-messages');
     const ctaDiv = document.createElement('div');
     ctaDiv.className = 'bitb-upgrade-cta';
@@ -1482,6 +1501,30 @@
       </div>
     `;
     messagesDiv.appendChild(ctaDiv);
+  }
+
+  function disableWidgetInput() {
+    const input = document.getElementById('bitb-input');
+    const button = document.getElementById('bitb-send-btn');
+    if (input) input.disabled = true;
+    if (button) button.disabled = true;
+  }
+  function markTrialExpired(message) {
+    if (trialData && trialData.valid === false) {
+      if (message) toast(message);
+      return;
+    }
+    trialData = {
+      valid: false,
+      days_remaining: 0,
+      usage: { queries_remaining: 0 },
+      preview: false,
+      expires_at: new Date().toISOString(),
+    };
+    disableWidgetInput();
+    showUpgradeCTA();
+    updateTrialStatus();
+    toast(message || 'Your trial has expired. Upgrade to continue.');
   }
 
   // =============================================================================

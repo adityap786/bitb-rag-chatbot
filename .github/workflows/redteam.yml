@@ -1,0 +1,238 @@
+name: Red-Team Safety Tests
+
+on:
+  push:
+    branches: [main, upgrade/next-16]
+  pull_request:
+    branches: [main, upgrade/next-16]
+  schedule:
+    # Run daily at 2 AM UTC to catch drift
+    - cron: '0 2 * * *'
+
+concurrency:
+  group: safety-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  safety-tests:
+    name: Red-Team Safety Test Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run safety middleware tests
+        run: npm run test:safety -- --coverage
+        env:
+          CI: true
+
+      - name: Run red-team test suite
+        run: npm run redteam:test -- --verbose
+        continue-on-error: false
+        env:
+          CI: true
+
+      - name: Generate safety report
+        if: always()
+        run: |
+          npm run redteam:report > safety-report.json || true
+          cat safety-report.json
+
+      - name: Upload safety artifacts
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: safety-reports
+          path: |
+            safety-report.json
+            coverage/safety/
+
+      - name: Comment on PR with results
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('safety-report.json', 'utf-8'));
+            
+            const comment = `## 🔒 Red-Team Safety Test Results
+            
+            **Summary:**
+            - Total Tests: ${report.summary.total}
+            - Passed: ${report.summary.passed} ✓
+            - Failed: ${report.summary.failed} ✗
+            - Pass Rate: ${report.summary.pass_rate}%
+            - Duration: ${report.summary.duration_ms}ms
+            
+            **By Category:**
+            ${Object.entries(report.by_category || {})
+              .map(([cat, results]) => 
+                `- **${cat}**: ${results.filter(r => r.passed).length}/${results.length}`
+              )
+              .join('\n')}
+            
+            ${report.summary.failed > 0 ? '### ⚠️ Failed Tests\n' + 
+              report.results
+                .filter(r => !r.passed)
+                .slice(0, 5)
+                .map(r => `- [${r.test_id}] ${r.test_name}`)
+                .join('\n') +
+              (report.results.filter(r => !r.passed).length > 5 ? '\n... and more' : '')
+            : '✅ All safety tests passed!'}
+            
+            [View full report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      - name: Check gating policy
+        run: |
+          npm run redteam:test -- --fail-fast > /tmp/test-output.txt 2>&1
+          EXIT_CODE=$?
+          
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "❌ Safety gate failed - critical tests did not pass"
+            cat /tmp/test-output.txt
+            exit 1
+          fi
+          
+          echo "✅ Safety gate passed"
+
+      - name: Verify no injection markers in code
+        run: |
+          echo "Scanning for hardcoded bypass markers..."
+          if grep -r "SYSTEM OVERRIDE\|DAN.*Do Anything\|no_rules\|ignore_safety" src/ --include="*.ts" --include="*.tsx"; then
+            echo "❌ Found suspicious patterns in source code"
+            exit 1
+          fi
+          echo "✅ No hardcoded bypass patterns detected"
+
+      - name: Archive results
+        if: always()
+        run: |
+          mkdir -p safety-archive
+          cp safety-report.json safety-archive/report-${{ github.run_number }}.json
+          echo "Safety test suite completed at $(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> safety-archive/manifest.txt
+
+      - name: Notify security team
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue?.number || 1,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '🚨 **SECURITY ALERT**: Red-team tests failed on ${{ github.ref }}. Immediate review required.'
+            });
+
+  safety-regression:
+    name: Safety Regression Check
+    runs-on: ubuntu-latest
+    needs: [safety-tests]
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.base_ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run baseline tests
+        run: npm run redteam:test -- --output baseline-results.json
+        continue-on-error: true
+
+      - name: Checkout head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Install dependencies (head)
+        run: npm ci --ignore-scripts
+
+      - name: Run head tests
+        run: npm run redteam:test -- --output head-results.json
+        continue-on-error: true
+
+      - name: Compare results
+        run: npm run safety:compare -- baseline-results.json head-results.json || true
+
+  dependency-scan:
+    name: Dependency Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run npm audit
+        run: npm audit --audit-level=moderate
+        continue-on-error: true
+
+      - name: Run Snyk scan
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        continue-on-error: true
+
+      - name: Upload Snyk results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: snyk.sarif
+        continue-on-error: true
+
+  code-quality:
+    name: Code Quality & Linting
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Lint safety code
+        run: npm run lint -- src/lib/safety/
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Check for console.log in safety code
+        run: |
+          if grep -r "console\.log" src/lib/safety/ --include="*.ts"; then
+            echo "⚠️ Warning: console.log found in safety code, should use telemetry"
+          fi

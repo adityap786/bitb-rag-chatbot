@@ -79,13 +79,40 @@ export class RedisRateLimiter {
   // Upstash Redis client is always ready
   private isConnected: boolean = true;
   private connectionError: Error | null = null;
+  private lastLatencyMs: number | undefined;
+  private locks: Map<string, Promise<void>> = new Map();
 
   constructor() {}
 
   // No-op for Upstash
   async initialize(): Promise<void> {
-    this.isConnected = true;
-    this.connectionError = null;
+    const health = await this.healthCheck();
+    this.isConnected = health.healthy;
+    this.connectionError = health.healthy ? null : new Error(health.error || 'Redis health check failed');
+
+    // In test/mocked environments, ensure a clean slate to keep scenarios isolated
+    if (this.isConnected && (process.env.NODE_ENV === 'test' || process.env.REDIS_USE_MOCK === 'true')) {
+      await this.clearAllRateLimits();
+    }
+  }
+
+  private async withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const previous = this.locks.get(key) || Promise.resolve();
+
+    let release: () => void = () => {};
+    const current = new Promise<void>(resolve => {
+      release = resolve;
+    });
+
+    this.locks.set(key, previous.then(() => current));
+
+    await previous;
+    try {
+      const result = await fn();
+      return result;
+    } finally {
+      release();
+    }
   }
 
   /**
@@ -100,58 +127,71 @@ export class RedisRateLimiter {
     reset_at: number;
     retry_after_ms?: number;
   }> {
-    // Upstash atomic rate limit logic (token bucket, no Lua)
-    try {
-      const key = `ratelimit:${identifier}`;
-      const now = Date.now();
-      const windowMs = config.window_ms;
-      const maxRequests = config.max_requests;
-
-      // Get current state
-      const hm = (await upstashRedis.hmget(key, 'tokens', 'last_refill')) as Array<string | null> | Record<string, string> | null;
-      let tokensStr: string | null = null;
-      let lastRefillStr: string | null = null;
-      if (Array.isArray(hm)) {
-        tokensStr = hm[0] ?? null;
-        lastRefillStr = hm[1] ?? null;
-      } else if (hm && typeof hm === 'object') {
-        tokensStr = (hm as any).tokens ?? null;
-        lastRefillStr = (hm as any).last_refill ?? null;
-      }
-      let tokens = tokensStr ? parseFloat(tokensStr) : maxRequests;
-      let lastRefill = lastRefillStr ? parseInt(lastRefillStr) : now;
-
-      // Refill tokens
-      const elapsed = now - lastRefill;
-      const refillRate = maxRequests / windowMs;
-      tokens = Math.min(maxRequests, tokens + elapsed * refillRate);
-
-      let allowed = false;
-      let retry_after_ms = 0;
-      if (tokens >= 1) {
-        allowed = true;
-        tokens -= 1;
-      } else {
-        retry_after_ms = Math.ceil((1 - tokens) / refillRate);
-      }
-
-      // Update state
-      await upstashRedis.hmset(key, {
-        tokens: tokens.toString(),
-        last_refill: now.toString(),
-        max_tokens: maxRequests.toString(),
-        refill_rate: refillRate.toString(),
-      });
-      await upstashRedis.pexpire(key, windowMs * 2);
-
+    const key = `ratelimit:${identifier}`;
+    if (!this.isConnected) {
       return {
-        allowed,
-        remaining: Math.floor(tokens),
-        reset_at: now + windowMs,
-        retry_after_ms: allowed ? undefined : retry_after_ms,
+        allowed: false,
+        remaining: 0,
+        reset_at: Date.now() + config.window_ms,
+        retry_after_ms: config.window_ms,
       };
+    }
+
+    try {
+      // Serialize per-key updates to avoid race conditions in concurrent calls
+      return await this.withLock(key, async () => {
+        const now = Date.now();
+        const windowMs = config.window_ms;
+        const maxRequests = config.max_requests;
+
+        // Get current state
+        const hm = (await upstashRedis.hmget(key, 'tokens', 'last_refill')) as Array<string | null> | Record<string, string> | null;
+        let tokensStr: string | null = null;
+        let lastRefillStr: string | null = null;
+        if (Array.isArray(hm)) {
+          tokensStr = hm[0] ?? null;
+          lastRefillStr = hm[1] ?? null;
+        } else if (hm && typeof hm === 'object') {
+          tokensStr = (hm as any).tokens ?? null;
+          lastRefillStr = (hm as any).last_refill ?? null;
+        }
+        let tokens = tokensStr ? parseFloat(tokensStr) : maxRequests;
+        let lastRefill = lastRefillStr ? parseInt(lastRefillStr) : now;
+
+        // Refill tokens
+        const elapsed = now - lastRefill;
+        const refillRate = maxRequests / windowMs;
+        tokens = Math.min(maxRequests, tokens + elapsed * refillRate);
+
+        let allowed = false;
+        let retry_after_ms = 0;
+        if (tokens >= 1) {
+          allowed = true;
+          tokens -= 1;
+        } else {
+          retry_after_ms = Math.ceil((1 - tokens) / refillRate);
+        }
+
+        // Update state
+        await upstashRedis.hmset(key, {
+          tokens: tokens.toString(),
+          last_refill: now.toString(),
+          max_tokens: maxRequests.toString(),
+          refill_rate: refillRate.toString(),
+        });
+        await upstashRedis.pexpire(key, windowMs * 2);
+
+        return {
+          allowed,
+          remaining: Math.floor(tokens),
+          reset_at: now + windowMs,
+          retry_after_ms: allowed ? undefined : retry_after_ms,
+        };
+      });
     } catch (error) {
       console.error('[RedisRateLimiter] Error checking rate limit:', error);
+      this.isConnected = false;
+      this.connectionError = error as Error;
       return {
         allowed: false,
         remaining: 0,
@@ -236,8 +276,28 @@ export class RedisRateLimiter {
     latency_ms?: number;
     error?: string;
   }> {
-    // Upstash is always healthy if env vars are set
-    return { healthy: true };
+    if (process.env.REDIS_FORCE_CONNECTION_FAILURE === 'true') {
+      this.isConnected = false;
+      this.connectionError = new Error('Forced Redis connection failure');
+      return { healthy: false, error: this.connectionError.message };
+    }
+
+    const start = Date.now();
+    try {
+      await upstashRedis.get('__ratelimiter_health__');
+      const latency = Date.now() - start;
+      this.lastLatencyMs = latency;
+      this.isConnected = true;
+      this.connectionError = null;
+      return { healthy: true, latency_ms: latency };
+    } catch (error) {
+      this.isConnected = false;
+      this.connectionError = error as Error;
+      return {
+        healthy: false,
+        error: (error as Error).message,
+      };
+    }
   }
 
   /**

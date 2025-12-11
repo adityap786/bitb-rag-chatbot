@@ -81,6 +81,109 @@ const productPlans = [
   },
 ];
 
+const surface = "relative overflow-hidden rounded-3xl border border-white/12 bg-gradient-to-br from-white/[0.08] via-white/[0.02] to-black/70 shadow-[0_24px_120px_-70px_rgba(255,255,255,0.85)]";
+const subtleGrid =
+  "absolute inset-0 opacity-60 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.08),transparent_28%),radial-gradient(circle_at_80%_0%,rgba(255,255,255,0.06),transparent_28%),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(0deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[length:260px_260px,220px_220px,120px_120px,120px_120px]";
+
+const securityHighlights = [
+  {
+    title: "Self-hosted or VPC-first",
+    copy: "Deploy inside your cloud, keep the model and vectors under your keys. Nothing leaves unless you say so.",
+    meta: "AWS · GCP · Azure · DO · On-prem",
+  },
+  {
+    title: "Zero data retention",
+    copy: "Inputs are never stored or reused. Every token stays ephemeral unless you opt in for observability.",
+    meta: "No shadow logging",
+  },
+  {
+    title: "Encryption end-to-end",
+    copy: "TLS 1.3 everywhere, AES-256 at rest, signed URLs for every artifact, scoped tokens for every tenant.",
+    meta: "Transport + rest + artifact signing",
+  },
+  {
+    title: "Granular access control",
+    copy: "RBAC, per-surface permissions, origin-locking, and kill-switches for any connector or model.",
+    meta: "RBAC · domain lock · quotas",
+  },
+  {
+    title: "Full auditability",
+    copy: "Every prompt, decision, and downstream action is logged with actor, time, and payload hashes.",
+    meta: "Trace-ready logs",
+  },
+  {
+    title: "Compliance runway",
+    copy: "Architected for GDPR, SOC2, HIPAA. Default PII scrubbing and retention controls ship with the stack.",
+    meta: "Default PII scrubbing",
+  },
+];
+
+const integrationStacks = [
+  {
+    label: "CRM",
+    tools: ["HubSpot", "Salesforce", "Zoho", "Pipedrive"],
+    note: "Sync leads, deals, and timelines with read/write actions.",
+  },
+  {
+    label: "ERP",
+    tools: ["SAP", "Oracle NetSuite", "Odoo", "Dynamics"],
+    note: "Move inventory, invoices, and payables with guardrails.",
+  },
+  {
+    label: "LMS",
+    tools: ["Moodle", "TalentLMS", "Teachmint", "Canvas"],
+    note: "Keep cohorts, assessments, and completions in sync.",
+  },
+  {
+    label: "Support",
+    tools: ["Freshdesk", "Zendesk", "Intercom", "Crisp", "Gorgias"],
+    note: "Open, update, and resolve tickets without tab-switching.",
+  },
+  {
+    label: "Commerce",
+    tools: ["Shopify", "WooCommerce", "Magento", "BigCommerce"],
+    note: "Products, orders, returns—kept consistent across channels.",
+  },
+  {
+    label: "Comms",
+    tools: ["WhatsApp API", "Twilio", "Mailchimp", "Klaviyo", "Slack", "Teams"],
+    note: "Trigger outreach, alerts, and journeys from any conversation.",
+  },
+];
+
+const resultSignals = [
+  {
+    metric: "90%",
+    label: "Faster response",
+    detail: "Seconds instead of minutes. Origin-locked, quota-safe.",
+  },
+  {
+    metric: "78%",
+    label: "Lead qualification",
+    detail: "Precision scoring with CRM writes baked in.",
+  },
+  {
+    metric: "40-70%",
+    label: "Manual work cut",
+    detail: "Tickets, intake, and updates automated with guardrails.",
+  },
+  {
+    metric: "↗",
+    label: "Conversion lift",
+    detail: "Bundles, nudges, and follow-ups tuned per funnel.",
+  },
+  {
+    metric: "↗",
+    label: "CSAT",
+    detail: "Voice-first empathy with bilingual tone control.",
+  },
+  {
+    metric: "↘",
+    label: "Ops cost",
+    detail: "Less swivel chair, more resolved conversations.",
+  },
+];
+
 export default function HomePage() {
   const reduceMotion = useReducedMotion();
   const [iframeLoaded, setIframeLoaded] = useState(false);
@@ -199,6 +302,282 @@ export default function HomePage() {
         <section className="my-16">
           <BusinessApplicationsSection />
         </section>
+
+        {/* Security & Privacy Section */}
+        <section className="relative my-16 overflow-hidden rounded-3xl border border-white/12 bg-black/80 p-8 md:p-12 shadow-[0_32px_140px_-90px_rgba(255,255,255,0.8)]">
+          <div className={subtleGrid} aria-hidden="true" />
+          <div className="relative grid gap-10 lg:grid-cols-[0.95fr_1.05fr]">
+            <div className="space-y-6">
+              <span className="inline-flex w-fit items-center gap-2 rounded-full border border-white/20 bg-black/60 px-4 py-1 text-[11px] uppercase tracking-[0.4em] text-white/70">
+                Security & Privacy
+                <span className="h-1 w-8 rounded-full bg-gradient-to-r from-white/80 to-white/30" aria-hidden="true" />
+              </span>
+              <h2 className="text-4xl font-semibold text-white sm:text-5xl">
+                Built for teams that treat data as sacred.
+              </h2>
+              <p className="text-lg text-white/70">
+                Security-first foundation. Privacy by design. Zero data leakage.
+              </p>
+              <p className="max-w-3xl text-base leading-relaxed text-white/60">
+                Keep sensitive knowledge, vectors, and runtime inside your walls. Our stack is engineered to respect boundaries: self-hostable, origin-locked, auditable, and built to withstand procurement.
+              </p>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="rounded-2xl border border-white/12 bg-white/5 p-4 text-sm text-white/80">
+                  <p className="text-[11px] uppercase tracking-[0.35em] text-white/50">Guardrails</p>
+                  <p className="mt-2 text-white">Origin lock · quota ceilings · kill switches per connector.</p>
+                </div>
+                <div className="rounded-2xl border border-white/12 bg-white/5 p-4 text-sm text-white/80">
+                  <p className="text-[11px] uppercase tracking-[0.35em] text-white/50">PII safe</p>
+                  <p className="mt-2 text-white">Default scrubbing, signed URLs, and per-tenant retention controls.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-6 sm:grid-cols-2">
+              {securityHighlights.map((item) => (
+                <div key={item.title} className={`${surface} p-6`}>
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/10 via-transparent to-white/0 opacity-60" aria-hidden="true" />
+                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_20%,rgba(255,255,255,0.08),transparent_45%)] opacity-50" aria-hidden="true" />
+                  <div className="relative space-y-3">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] uppercase tracking-[0.3em] text-white/60">
+                      <Lock className="h-3.5 w-3.5 text-white" aria-hidden="true" />
+                      {item.meta}
+                    </div>
+                    <h3 className="text-xl font-semibold text-white">{item.title}</h3>
+                    <p className="text-sm leading-relaxed text-white/70">{item.copy}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="relative mt-10 rounded-3xl border border-dashed border-white/15 bg-gradient-to-r from-white/5 via-white/0 to-white/5 p-6">
+            <div className="flex flex-wrap items-center gap-3">
+              {["AWS", "GCP", "Azure", "DigitalOcean", "On-Prem"].map((item) => (
+                <span key={item} className="rounded-full border border-white/20 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-white/70">
+                  {item}
+                </span>
+              ))}
+              <span className="text-sm text-white/60">Deploy anywhere. Keep every secret inside your perimeter.</span>
+            </div>
+          </div>
+
+          <div className="mt-8 text-center">
+            <p className="text-sm italic text-white/60">“Your data stays yours.”</p>
+            <p className="mt-2 text-xs text-white/45">Enterprise-grade security without enterprise-level bureaucracy.</p>
+          </div>
+        </section>
+
+        {/* Integrations Section */}
+        <section className="my-16 rounded-3xl border border-white/10 bg-black/70 p-8 md:p-12">
+          <div className="mx-auto max-w-6xl">
+            <div className="text-center">
+              <span className="inline-block rounded-full border border-white/20 bg-black/60 px-4 py-1 text-xs uppercase tracking-[0.4em] text-white/60">
+                Integrations
+              </span>
+              <h2 className="mt-6 text-4xl font-semibold text-white sm:text-5xl">
+                Plug Into the Tools That Run Your Business
+              </h2>
+              <p className="mt-4 text-lg text-white/70">
+                Native integrations with your CRM, ERP, LMS, support system, e-commerce stack, marketing tools & more.
+              </p>
+              <p className="mx-auto mt-6 max-w-3xl text-base leading-relaxed text-white/60">
+                Your chatbot becomes the operational brain across multiple business systems—connecting once to automate everywhere.
+              </p>
+            </div>
+
+            <div className="mt-12 grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+                <h3 className="text-lg font-semibold text-white">CRMs</h3>
+                <ul className="mt-4 space-y-2 text-sm text-white/70">
+                  <li>HubSpot</li>
+                  <li>Salesforce</li>
+                  <li>Zoho CRM</li>
+                  <li>Pipedrive</li>
+                </ul>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+                <h3 className="text-lg font-semibold text-white">ERPs</h3>
+                <ul className="mt-4 space-y-2 text-sm text-white/70">
+                  <li>SAP</li>
+                  <li>Oracle NetSuite</li>
+                  <li>Odoo</li>
+                  <li>Tally Prime</li>
+                  <li>Microsoft Dynamics</li>
+                </ul>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+                <h3 className="text-lg font-semibold text-white">LMS / Training</h3>
+                <ul className="mt-4 space-y-2 text-sm text-white/70">
+                  <li>Moodle</li>
+                  <li>TalentLMS</li>
+                  <li>Teachmint</li>
+                  <li>Canvas LMS</li>
+                </ul>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+                <h3 className="text-lg font-semibold text-white">Helpdesk & Support</h3>
+                <ul className="mt-4 space-y-2 text-sm text-white/70">
+                  <li>Freshdesk</li>
+                  <li>Zendesk</li>
+                  <li>Intercom</li>
+                  <li>Crisp</li>
+                  <li>Gorgias</li>
+                </ul>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+                <h3 className="text-lg font-semibold text-white">E-commerce</h3>
+                <ul className="mt-4 space-y-2 text-sm text-white/70">
+                  <li>Shopify</li>
+                  <li>WooCommerce</li>
+                  <li>Magento</li>
+                  <li>BigCommerce</li>
+                </ul>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+                <h3 className="text-lg font-semibold text-white">Communication & Marketing</h3>
+                <ul className="mt-4 space-y-2 text-sm text-white/70">
+                  <li>WhatsApp Cloud API</li>
+                  <li>Twilio</li>
+                  <li>Mailchimp</li>
+                  <li>Klaviyo</li>
+                  <li>Slack</li>
+                  <li>Teams</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="mt-10 rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 to-white/[0.02] p-8">
+              <h3 className="text-2xl font-semibold text-white">How Integrations Work</h3>
+              <div className="mt-6 grid gap-6 md:grid-cols-2">
+                <div>
+                  <ul className="space-y-3 text-sm text-white/70">
+                    <li className="flex items-start gap-2">
+                      <span className="mt-1 text-emerald-400">●</span>
+                      <span><strong>Secure API-level connectors</strong> ensure data flows safely between systems</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="mt-1 text-emerald-400">●</span>
+                      <span><strong>Real-time syncing</strong> of customer, order, ticket, and lead data</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="mt-1 text-emerald-400">●</span>
+                      <span><strong>Automated workflows</strong> (create ticket, update CRM record, send notification)</span>
+                    </li>
+                  </ul>
+                </div>
+                <div>
+                  <ul className="space-y-3 text-sm text-white/70">
+                    <li className="flex items-start gap-2">
+                      <span className="mt-1 text-sky-400">●</span>
+                      <span><strong>Read + write capabilities</strong> for chatbot actions across systems</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="mt-1 text-sky-400">●</span>
+                      <span><strong>Unified customer profile</strong> across every touchpoint</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="mt-1 text-sky-400">●</span>
+                      <span><strong>No-code interface</strong> to activate integrations instantly</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-8 text-center">
+              <p className="text-sm italic text-white/50">&ldquo;Connect once. Automate everywhere.&rdquo;</p>
+              <p className="mt-2 text-xs text-white/40">Your systems finally talk to each other. From CRM updates to ERP actions—handled by AI.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* Results Section */}
+        <section className="my-16 rounded-3xl border border-white/10 bg-gradient-to-br from-white/5 to-white/[0.02] p-8 md:p-12">
+          <div className="mx-auto max-w-5xl">
+            <div className="text-center">
+              <span className="inline-block rounded-full border border-white/20 bg-black/60 px-4 py-1 text-xs uppercase tracking-[0.4em] text-white/60">
+                Results
+              </span>
+              <h2 className="mt-6 text-4xl font-semibold text-white sm:text-5xl">
+                Real Outcomes That Matter to Businesses
+              </h2>
+              <p className="mx-auto mt-6 max-w-3xl text-base leading-relaxed text-white/70">
+                Our platform isn&apos;t just another chatbot. It enhances productivity, reduces operational drag, and helps your business scale without increasing headcount. You get AI that directly improves revenue, efficiency, and customer experience—with measurable outcomes from day one.
+              </p>
+            </div>
+
+            <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              <div className="rounded-2xl border border-white/10 bg-black/50 p-6 text-center">
+                <div className="text-5xl font-bold text-white">90%</div>
+                <p className="mt-3 text-sm font-semibold text-white/80">Faster Response Time</p>
+                <p className="mt-2 text-xs text-white/60">Instant support reduces wait times from minutes to seconds</p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-black/50 p-6 text-center">
+                <div className="text-5xl font-bold text-white">78%</div>
+                <p className="mt-3 text-sm font-semibold text-white/80">Lead Qualification</p>
+                <p className="mt-2 text-xs text-white/60">Up from industry avg of 35%—AI-driven precision</p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-black/50 p-6 text-center">
+                <div className="text-5xl font-bold text-white">40-70%</div>
+                <p className="mt-3 text-sm font-semibold text-white/80">Manual Work Saved</p>
+                <p className="mt-2 text-xs text-white/60">Teams focus on high-value tasks, not repetitive queries</p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-black/50 p-6 text-center">
+                <div className="text-5xl font-bold text-white">↑</div>
+                <p className="mt-3 text-sm font-semibold text-white/80">Sales Conversions</p>
+                <p className="mt-2 text-xs text-white/60">AI-driven follow-up keeps leads warm and moving</p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-black/50 p-6 text-center">
+                <div className="text-5xl font-bold text-white">↑</div>
+                <p className="mt-3 text-sm font-semibold text-white/80">Customer Satisfaction</p>
+                <p className="mt-2 text-xs text-white/60">Faster resolution = happier customers</p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-black/50 p-6 text-center">
+                <div className="text-5xl font-bold text-white">↓</div>
+                <p className="mt-3 text-sm font-semibold text-white/80">Operational Costs</p>
+                <p className="mt-2 text-xs text-white/60">Workflow automation cuts recurring expenses</p>
+              </div>
+            </div>
+
+            <div className="mt-10 rounded-2xl border border-white/10 bg-white/5 p-8">
+              <h3 className="text-2xl font-semibold text-white">Additional Benefits</h3>
+              <div className="mt-6 grid gap-4 md:grid-cols-2">
+                <div className="flex items-start gap-3">
+                  <span className="mt-1 text-emerald-400">✓</span>
+                  <div>
+                    <p className="font-semibold text-white">Error-free data entry</p>
+                    <p className="mt-1 text-sm text-white/70">Automated CRM and ERP updates eliminate human error</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="mt-1 text-emerald-400">✓</span>
+                  <div>
+                    <p className="font-semibold text-white">Stronger retention</p>
+                    <p className="mt-1 text-sm text-white/70">Timely reminders, onboarding flows, and personalized messaging</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-8 text-center">
+              <p className="text-sm italic text-white/50">&ldquo;AI that earns its keep.&rdquo;</p>
+              <p className="mt-2 text-xs text-white/40">Productivity, precision, profitability—on autopilot. Turn conversations into conversions.</p>
+            </div>
+          </div>
+        </section>
+
       <section className="rounded-3xl border border-white/10 bg-black/70 p-8 md:p-12 shadow-[0_0_140px_-45px_rgba(255,255,255,0.65)] backdrop-blur">
         <div className="grid gap-10 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="flex flex-col gap-6">

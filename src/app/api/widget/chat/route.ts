@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { BatchChatRequest, BatchChatResponse, ChatMessage } from '@/types/chatbot';
 import { z } from 'zod';
 import { trackUsage } from '@/lib/trial/usage-tracker';
+import { verifyToken } from '@/lib/trial/auth';
 import { enforceQuota } from '@/lib/trial/quota-enforcer';
 import { ChatAudit, ErrorAudit } from '@/lib/trial/audit-logger';
 import { detectAndMaskPHI } from '@/lib/healthcare/compliance';
@@ -23,6 +24,10 @@ import type { McpHybridRagResult } from '@/lib/ragPipeline';
 
 const supabase = createLazyServiceClient();
 
+import { getLLM } from '@/lib/llm/factory';
+import { generateText } from 'ai';
+import { validateTenantId } from '@/lib/security/rag-guardrails';
+
 async function generateChatResponse(
   prompt: string,
   context: string,
@@ -37,30 +42,20 @@ async function generateChatResponse(
 
   const systemPrompt = config?.prompt_template || 'You are a helpful AI assistant.';
 
-  // Call LLM (use existing Groq/OpenAI setup)
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-3.5-turbo',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Context:\n${context}\n\nQuestion: ${prompt}` },
-      ],
-      temperature: 0.7,
-      max_tokens: 500,
-    }),
+  // Use Groq via AI SDK
+  const model = getLLM(tenantId);
+  
+  const { text } = await generateText({
+    model,
+    system: systemPrompt,
+    messages: [
+      { role: 'user', content: `Context:\n${context}\n\nQuestion: ${prompt}` },
+    ],
+    temperature: 0.7,
+    maxTokens: 500,
   });
 
-  if (!response.ok) {
-    throw new Error(`LLM API error: ${response.statusText}`);
-  }
-
-  const data = await response.json();
-  return data.choices[0].message.content;
+  return text;
 }
 
 export async function POST(req: any, context: { params: Promise<{}> }) {
@@ -127,6 +122,42 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
         .single();
       tenantId = session?.tenant_id;
     }
+
+    // Token Verification (Optional but enforced if provided)
+    const authHeader = req.headers.get('authorization');
+    if (authHeader) {
+      const token = authHeader.replace('Bearer ', '');
+      try {
+        const payload = verifyToken(token);
+        if (tenantId && payload.tenantId !== tenantId) {
+           logger.warn('Token tenantId mismatch', { tokenTenant: payload.tenantId, sessionTenant: tenantId });
+           return NextResponse.json({ error: 'Unauthorized: Tenant mismatch' }, { status: 403 });
+        }
+      } catch (err) {
+        logger.warn('Invalid token provided', { error: err instanceof Error ? err.message : err });
+        return NextResponse.json({ error: 'Unauthorized: Invalid or expired token' }, { status: 401 });
+      }
+    }
+
+    // Strict Trial Status Check
+    if (tenantId) {
+       const { data: tenantStatus } = await supabase
+        .from('trial_tenants')
+        .select('status, trial_expires_at')
+        .eq('tenant_id', tenantId)
+        .single();
+       
+       if (!tenantStatus) {
+          return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
+       }
+       if (tenantStatus.status !== 'active') {
+          return NextResponse.json({ error: 'Trial is not active' }, { status: 403 });
+       }
+       if (new Date(tenantStatus.trial_expires_at) < new Date()) {
+          return NextResponse.json({ error: 'Trial has expired' }, { status: 403 });
+       }
+    }
+
     // Support batch queries: if body.messages (array) is present, use batching
     isBatch = Array.isArray(body.messages);
     batchMessages = isBatch ? body.messages : [];
@@ -138,6 +169,16 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
       await ErrorAudit.apiError(undefined, '/api/widget/chat', 400, 'Missing tenantId for rate limiting', requestId);
       TrialLogger.logRequest('POST', '/api/widget/chat', 400, Date.now() - startTime, { requestId });
       return NextResponse.json({ error: 'Missing tenantId for rate limiting' }, { status: 400 });
+    }
+
+    // Enforce production tenant format early to avoid downstream crashes
+    try {
+      validateTenantId(tenantId);
+    } catch (err) {
+      logger.warn('Invalid tenantId format', { tenantIdPreview: tenantId.slice(0, 10), requestId });
+      await ErrorAudit.apiError(tenantId, '/api/widget/chat', 400, 'Invalid tenant_id format', requestId);
+      TrialLogger.logRequest('POST', '/api/widget/chat', 400, Date.now() - startTime, { requestId, tenantId });
+      return NextResponse.json({ error: 'Invalid tenant_id format (expected tn_* or uuid)' }, { status: 400 });
     }
 
     // Create usage tracker early so we can record rate-limits/failures

@@ -25,10 +25,12 @@ interface ChatMessage {
 
 export default function TrialPlayground({
   formData,
-  trialToken
+  trialToken,
+  tenantId,
 }: {
   formData: { primaryColor: string; chatName: string };
   trialToken: string;
+  tenantId?: string;
 }) {
   const [inputValue, setInputValue] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -37,8 +39,47 @@ export default function TrialPlayground({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [totalQueries, setTotalQueries] = useState(0);
   const [avgLatency, setAvgLatency] = useState(0);
+  const [pipelineReady, setPipelineReady] = useState<boolean | null>(null);
+  const [readinessError, setReadinessError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Check pipeline readiness on mount and periodically
+  useEffect(() => {
+    const effectiveTenantId = tenantId || process.env.NEXT_PUBLIC_DEMO_TENANT_ID;
+    if (!effectiveTenantId || !trialToken) return;
+
+    let cancelled = false;
+    const checkReadiness = async () => {
+      try {
+        const res = await fetch(`/api/tenants/${effectiveTenantId}/pipeline-ready`, {
+          headers: { Authorization: `Bearer ${trialToken}` },
+        });
+        if (!res.ok) {
+          if (res.status === 401 || res.status === 403) {
+            setReadinessError('Session expired. Please refresh.');
+            return;
+          }
+          throw new Error('Failed to check readiness');
+        }
+        const data = await res.json();
+        if (!cancelled) {
+          setPipelineReady(data.ready);
+          if (!data.ready) {
+            // Poll again in 3 seconds if not ready
+            setTimeout(checkReadiness, 3000);
+          }
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setReadinessError(err.message || 'Readiness check failed');
+        }
+      }
+    };
+
+    checkReadiness();
+    return () => { cancelled = true; };
+  }, [tenantId, trialToken]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -48,7 +89,7 @@ export default function TrialPlayground({
   // Focus input on mount
   useEffect(() => {
     inputRef.current?.focus();
-  }, []);
+  }, [messages, pipelineReady]);
 
   const generateId = () => `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
@@ -70,14 +111,17 @@ export default function TrialPlayground({
     const startTime = Date.now();
 
     try {
+      const effectiveTenantId = tenantId || process.env.NEXT_PUBLIC_DEMO_TENANT_ID || trialToken;
+      const payload = {
+        tenant_id: effectiveTenantId,
+        trial_token: trialToken,
+        query: messageText,
+      };
+
       const response = await fetch('/api/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tenant_id: trialToken,
-          trial_token: trialToken,
-          query: messageText,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
@@ -168,8 +212,43 @@ export default function TrialPlayground({
     return 'Low confidence';
   };
 
+  // Show loading state while checking pipeline readiness
+  if (pipelineReady === null && !readinessError) {
+    return (
+      <div className="relative space-y-4 bg-black min-h-[600px] text-white flex flex-col items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
+        <p className="text-white/70 text-sm">Checking pipeline readiness...</p>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (readinessError) {
+    return (
+      <div className="relative space-y-4 bg-black min-h-[600px] text-white flex flex-col items-center justify-center">
+        <div className="text-rose-400 text-center">
+          <p className="font-semibold">Unable to check readiness</p>
+          <p className="text-sm text-white/60 mt-1">{readinessError}</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show not-ready state with polling indicator
+  if (pipelineReady === false) {
+    return (
+      <div className="relative space-y-4 bg-black min-h-[600px] text-white flex flex-col items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-amber-400" />
+        <div className="text-center">
+          <p className="font-semibold text-amber-300">Your knowledge base is still processing</p>
+          <p className="text-sm text-white/60 mt-1">The Playground will activate automatically once ready...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-4 bg-black min-h-[600px] text-white">
+    <div className="relative space-y-4 bg-black min-h-[600px] text-white">
       {/* Header with stats */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -399,7 +478,11 @@ export default function TrialPlayground({
             {/* Chat Input */}
             <div className="p-4 bg-black border-t border-white/20">
               <div className="flex gap-2">
+                <label htmlFor="chat-query" className="sr-only">Ask anything about your content</label>
                 <input
+                  id="chat-query"
+                  name="chat-query"
+                  aria-label="Ask anything about your content"
                   ref={inputRef}
                   type="text"
                   placeholder="Ask anything about your content..."

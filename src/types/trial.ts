@@ -107,6 +107,11 @@ export interface WidgetConfig {
   placeholder_text: string;
   assigned_tools: string[];
   prompt_template: string | null;
+  avatar_url?: string;
+  framework?: string | null;
+  hosting?: string | null;
+  platform?: string | null;
+  knowledge_base_sources?: string[] | null;
   updated_at: string;
   created_at: string;
 }
@@ -116,6 +121,11 @@ export interface BrandingRequest {
   secondaryColor: string;
   tone: 'professional' | 'friendly' | 'casual';
   welcomeMessage?: string;
+  platform?: string;
+  framework?: string;
+  hosting?: string;
+  logoUrl?: string;
+  knowledgeBaseSources?: string[];
 }
 
 export interface GenerateWidgetResponse {

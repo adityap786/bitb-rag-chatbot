@@ -93,7 +93,7 @@ export default function TrialOnboardingWizardPolished() {
             <Input id="secondaryColor" type="color" value={secondaryColor} onChange={e => setSecondaryColor(e.target.value)} className="w-16 h-8" />
             <Label htmlFor="chatTone">Chat Tone</Label>
             <Select value={chatTone} onValueChange={setChatTone}>
-              <SelectTrigger className="bg-black text-white border-white/20"><SelectValue /></SelectTrigger>
+              <SelectTrigger id="chatTone" className="bg-black text-white border-white/20"><SelectValue /></SelectTrigger>
               <SelectContent className="bg-black text-white">
                 <SelectItem value="professional">Professional</SelectItem>
                 <SelectItem value="friendly">Friendly</SelectItem>

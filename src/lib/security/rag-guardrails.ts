@@ -22,6 +22,12 @@ export const RAG_LIMITS = {
   MAX_TOTAL_CONTEXT: 6000, // characters
 };
 
+// Accept legacy UUID tenant IDs and new tn_ prefixed IDs
+const TENANT_ID_PATTERNS = [
+  /^tn_[a-z0-9]{32}$/i, // tn_<32 hex>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, // UUID
+];
+
 export function validateTenantId(tenantId?: string): void {
   if (tenantId == null || tenantId === undefined || tenantId === '') {
     const e: any = new Error('RAG_SECURITY: TENANT_ID_REQUIRED');
@@ -33,8 +39,9 @@ export function validateTenantId(tenantId?: string): void {
     e.code = 'TENANT_ID_TYPE';
     throw e;
   }
-  // Must start with tn_ and be 35 chars (tn_ + 32 lowercase letters/numbers)
-  if (!/^tn_[a-z0-9]{32}$/.test(tenantId)) {
+
+  const isValid = TENANT_ID_PATTERNS.some((pattern) => pattern.test(tenantId));
+  if (!isValid) {
     const e: any = new Error('Invalid tenant_id format');
     e.code = 'TENANT_ID_FORMAT';
     throw e;

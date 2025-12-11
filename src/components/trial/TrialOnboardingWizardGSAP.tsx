@@ -190,7 +190,7 @@ export default function TrialOnboardingWizardGSAP() {
             <div>
               <Label htmlFor="chatTone" className="text-sm">Chat Tone</Label>
               <Select value={chatTone} onValueChange={setChatTone}>
-                <SelectTrigger className="bg-black text-white border-white/20"><SelectValue /></SelectTrigger>
+                <SelectTrigger id="chatTone" className="bg-black text-white border-white/20"><SelectValue /></SelectTrigger>
                 <SelectContent className="bg-black text-white">
                   <SelectItem value="professional">Professional</SelectItem>
                   <SelectItem value="friendly">Friendly</SelectItem>
@@ -212,7 +212,11 @@ export default function TrialOnboardingWizardGSAP() {
       )}
       {step === 3 && (
         <Card className="border border-white/10 p-6 bg-transparent" ref={el => { stepRefs.current[2] = el; }}>
-          <TrialPlayground formData={{ primaryColor, chatName: businessName || 'Support Assistant' }} trialToken={trialToken} />
+          <TrialPlayground
+            formData={{ primaryColor, chatName: businessName || 'Support Assistant' }}
+            trialToken={trialToken}
+            tenantId={process.env.NEXT_PUBLIC_DEMO_TENANT_ID || undefined}
+          />
           <div className="mt-6">
             <Button className="w-full bg-white text-black font-bold" onClick={() => nextStep()}>Continue to Widget Code</Button>
           </div>

@@ -1,17 +1,22 @@
 import type { RAGPipelineConfig, EmbeddingChunk, SemanticSearchResult } from '../../types/trial';
+import type { IngestionStepKey } from '@/types/ingestion';
+import type { IngestionJob } from '../../types/ingestion';
 import { ExternalServiceError, InternalError } from './errors';
 import TrialLogger from './logger';
 import { validateTenantId, enforceContextLimits, redactPII } from '../security/rag-guardrails';
-import { createLazyServiceClient } from '../supabase-client';
+import { createLazyServiceClient, setTenantContext } from '../supabase-client';
 import { generateEmbeddings } from './embeddings';
+import { recordStepComplete, recordStepFailure, recordStepStart } from './ingestion-steps';
+import { metrics } from '../telemetry';
 
 const supabase = createLazyServiceClient();
 
 /**
  * Chunk text into smaller pieces with overlap for context preservation
  * Uses sentence boundaries to avoid splitting in the middle of sentences
+ * Default chunkSize 1024 chars (~256 tokens) is safe for MPNet (512 tokens max)
  */
-export function chunkText(text: string, chunkSize: number = 512, overlap: number = 50): string[] {
+export function chunkText(text: string, chunkSize: number = 1024, overlap: number = 100): string[] {
   if (!text || text.length === 0) return [];
 
   // Split by sentence endings (., !, ?)
@@ -50,11 +55,15 @@ export async function insertEmbeddings(
   validateTenantId(tenantId);
   if (chunks.length === 0) return;
 
+  // Ensure RLS context is set
+  await setTenantContext(supabase, tenantId);
+
   const records = chunks.map((chunk, i) => ({
     kb_id: chunk.kbId,
     tenant_id: tenantId,
-    chunk_text: chunk.text,
-    embedding: embeddings[i],
+    content: chunk.text, // Required by schema
+    chunk_text: chunk.text, // Optional but good for clarity
+    embedding_768: embeddings[i], // Schema uses embedding_768
     metadata: chunk.metadata,
   }));
 
@@ -137,19 +146,21 @@ export async function hybridSearch(
 
   // Basic guards
   validateTenantId(tenantId);
-  if (!process.env.OPENAI_API_KEY) {
-    throw new InternalError('OPENAI_API_KEY environment variable is not set');
-  }
+  // Removed OpenAI check as we use local MPNet
+  // if (!process.env.OPENAI_API_KEY) { ... }
 
   try {
     // 1) Vector search (get extra candidates)
     const [queryEmbedding] = await generateEmbeddings([query]);
 
+    // Ensure RLS context is set for RPC
+    await setTenantContext(supabase, tenantId);
+
     const { data: vdata, error: verror } = await supabase.rpc('match_embeddings', {
       query_embedding: queryEmbedding,
-      tenant_id: tenantId,
+      match_tenant: tenantId, // Updated parameter name to match migration
       match_count: Math.max(topK * 2, topK),
-      match_threshold: 0.0,
+      similarity_threshold: 0.0, // Updated parameter name
     }) as any;
 
     if (verror) {
@@ -277,21 +288,82 @@ export async function hybridSearch(
  */
 export async function buildRAGPipeline(
   tenantId: string,
-  config: RAGPipelineConfig
+  config: RAGPipelineConfig,
+  jobId?: string
 ): Promise<void> {
+  // ETA estimates in milliseconds based on typical processing times
+  const BASE_ETAS = {
+    setup: 500,
+    ingestion: 1000,
+    chunking: 2000,
+    embedding: 5000,
+    storing: 2000,
+    done: 500,
+  };
+
+  // Progressive readiness: enable Playground after MIN vectors
+  const MIN_PROGRESSIVE_VECTORS = Number(process.env.MIN_PIPELINE_VECTORS ?? '10');
+  let progressiveReadyEmitted = false;
+
+  const startStep = async (stepKey: IngestionStepKey, message?: string, dynamicEtaMs?: number) => {
+    if (!jobId) return;
+    const etaMs = dynamicEtaMs ?? BASE_ETAS[stepKey] ?? 1000;
+    await recordStepStart(jobId, stepKey, { message, etaMs });
+  };
+
+  const completeStep = async (stepKey: IngestionStepKey, message?: string) => {
+    if (!jobId) return;
+    await recordStepComplete(jobId, stepKey, { message });
+  };
+
+  const failStep = async (stepKey: IngestionStepKey, message?: string) => {
+    if (!jobId) return;
+    await recordStepFailure(jobId, stepKey, message);
+  };
+
   try {
     // Validate tenant early to ensure fail-closed behavior
     validateTenantId(tenantId);
 
     await updateTenantStatus(tenantId, 'processing');
+    if (jobId) {
+      await supabase.from('ingestion_jobs').update({ status: 'processing', progress: 10 }).eq('job_id', jobId);
+    }
 
+    await startStep('setup', 'Preparing your chatbot ingestion workflow');
+
+    await completeStep('setup', 'Tenant validation complete');
+    await startStep('ingestion', 'Fetching knowledge base documents');
     // Fetch KB documents
     const docs = await fetchKnowledgeBase(tenantId);
+    await completeStep('ingestion', `${docs.length} knowledge base document(s) processed`);
 
     if (docs.length === 0) {
+      await completeStep('ingestion', 'No documents to ingest');
+      await startStep('chunking', 'Skipping chunking because no documents exist');
+      await completeStep('chunking');
+      await startStep('embedding', 'Skipping embeddings because no chunks exist');
+      await completeStep('embedding');
+      await startStep('storing', 'Finishing job with zero documents');
+      await completeStep('storing');
+      await startStep('done', 'Pipeline finished with no data');
+      await completeStep('done');
       await updateTenantStatus(tenantId, 'ready');
+      if (jobId) {
+        await supabase.from('ingestion_jobs').update({ status: 'completed', progress: 100 }).eq('job_id', jobId);
+      }
+      metrics.counter('rag.pipeline.completed', 1, { tenantId });
       return;
     }
+
+    if (jobId) {
+      await supabase.from('ingestion_jobs').update({ progress: 20, pages_processed: docs.length }).eq('job_id', jobId);
+    }
+
+    // Calculate dynamic ETAs based on document count
+    const chunkingEta = Math.max(BASE_ETAS.chunking, docs.length * 200); // ~200ms per doc
+    await startStep('chunking', 'Chunking documents', chunkingEta);
+    const chunkStart = Date.now();
 
     // Chunk documents
     const chunks: EmbeddingChunk[] = [];
@@ -310,14 +382,64 @@ export async function buildRAGPipeline(
       });
     });
 
+    metrics.timing('rag.chunking.duration', Date.now() - chunkStart, { tenantId });
+    metrics.counter('rag.chunks.created', chunks.length, { tenantId });
+
+    await completeStep('chunking', `${chunks.length} chunks created`);
+    
+    // Calculate embedding ETA: ~50ms per chunk with batching
+    const embeddingEta = Math.max(BASE_ETAS.embedding, chunks.length * 50);
+    await startStep('embedding', 'Generating embeddings', embeddingEta);
+
+    if (jobId) {
+      await supabase.from('ingestion_jobs').update({ progress: 40, chunks_created: chunks.length }).eq('job_id', jobId);
+    }
+
     // Generate embeddings
     const chunkTexts = chunks.map((c: EmbeddingChunk) => c.text);
+    const embedStart = Date.now();
     const embeddings = await generateEmbeddings(chunkTexts);
+    metrics.timing('rag.embedding.duration', Date.now() - embedStart, { tenantId });
+
+    await completeStep('embedding', `${embeddings.length} embeddings generated`);
+    
+    // Calculate storing ETA: ~5ms per embedding
+    const storingEta = Math.max(BASE_ETAS.storing, embeddings.length * 5);
+    await startStep('storing', 'Storing vectors', storingEta);
+
+    if (jobId) {
+      await supabase.from('ingestion_jobs').update({ progress: 80, embeddings_count: embeddings.length }).eq('job_id', jobId);
+    }
 
     // Insert embeddings
+    const storeStart = Date.now();
     await insertEmbeddings(tenantId, chunks, embeddings);
+    metrics.timing('rag.storing.duration', Date.now() - storeStart, { tenantId });
+    metrics.counter('rag.vectors.stored', embeddings.length, { tenantId });
 
-    await updateTenantStatus(tenantId, 'ready');
+    // Progressive readiness: enable Playground early once we have enough vectors
+    if (!progressiveReadyEmitted && embeddings.length >= MIN_PROGRESSIVE_VECTORS) {
+      await updateTenantStatus(tenantId, 'ready');
+      progressiveReadyEmitted = true;
+      TrialLogger.info('Progressive readiness enabled', { tenantId, vectorCount: embeddings.length });
+    }
+
+    await completeStep('storing', 'Vectors stored');
+    await startStep('done', 'Finalizing pipeline');
+
+    // Final status update (may already be 'ready' from progressive)
+    if (!progressiveReadyEmitted) {
+      await updateTenantStatus(tenantId, 'ready');
+    }
+    if (jobId) {
+      await supabase
+        .from('ingestion_jobs')
+        .update({ status: 'completed', progress: 100, embeddings_count: embeddings.length })
+        .eq('job_id', jobId);
+    }
+
+    await completeStep('done', 'Pipeline completed successfully');
+    metrics.counter('rag.pipeline.completed', 1, { tenantId });
 
     TrialLogger.logModification('rag_pipeline', 'create', tenantId, tenantId, {
       chunkCount: chunks.length,
@@ -326,6 +448,15 @@ export async function buildRAGPipeline(
   } catch (error: any) {
     TrialLogger.error('RAG pipeline build failed', error, { tenantId });
     await updateTenantStatus(tenantId, 'failed');
+    if (jobId) {
+      await supabase.from('ingestion_jobs').update({ 
+        status: 'failed', 
+        error_message: error.message,
+        error_details: { stack: error.stack }
+      }).eq('job_id', jobId);
+      await failStep('done', error.message);
+    }
+    metrics.counter('rag.pipeline.failed', 1, { tenantId });
     throw error;
   }
 }

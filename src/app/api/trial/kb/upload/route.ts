@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verify } from 'jsonwebtoken';
 import { createHash } from 'crypto';
 import type { KBUploadResponse } from '@/types/trial';
+import { PDFParse } from 'pdf-parse';
+import mammoth from 'mammoth';
 import {
   validateFileParams,
   validateFile,
@@ -26,18 +28,32 @@ const ALLOWED_TYPES = ['.pdf', '.txt', '.md', '.docx', '.doc'];
 
 /**
  * Extract text from file based on type
- * TODO: Implement proper text extraction for PDF, DOCX
  */
-function extractTextFromFile(file: File, buffer: Buffer): string {
+async function extractTextFromFile(file: File, buffer: Buffer): Promise<string> {
   const ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
 
-  if (ext === '.txt' || ext === '.md') {
-    return buffer.toString('utf-8');
+  try {
+    if (ext === '.txt' || ext === '.md') {
+      return buffer.toString('utf-8');
+    }
+
+    if (ext === '.pdf') {
+      const parser = new PDFParse({ data: buffer });
+      const result = await parser.getText();
+      await parser.destroy();
+      return result.text;
+    }
+
+    if (ext === '.docx' || ext === '.doc') {
+      const result = await mammoth.extractRawText({ buffer });
+      return result.value;
+    }
+  } catch (error) {
+    console.error(`Failed to parse ${file.name}:`, error);
+    return `[Error parsing ${file.name}]`;
   }
 
-  // Placeholder for other formats - implement proper parsers
-  // In production, use: pdf-parse for PDF, mammoth for DOCX
-  return `[Content from ${file.name} - parser for ${ext} not yet implemented]`;
+  return `[Unsupported format ${ext}]`;
 }
 
 export async function POST(req: any, context: { params: Promise<{}> }) {
@@ -118,7 +134,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
         const buffer = Buffer.from(arrayBuffer);
 
         // Extract text content
-        const rawText = extractTextFromFile(file, buffer);
+        const rawText = await extractTextFromFile(file, buffer);
 
         if (!rawText || rawText.trim().length === 0) {
           TrialLogger.warn('Empty file content', {

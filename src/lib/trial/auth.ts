@@ -90,13 +90,19 @@ export function verifyBearerToken(req: NextRequest): TokenPayload {
 
 /**
  * Admin authentication check
- * TODO: Implement proper admin verification (check user role in database)
+ * Checks for a special Admin API Key in headers for now.
+ * In production, this should use a proper session/role check.
  */
-export function requireAdmin(userId: string): void {
-  // This should check user roles in your auth system
-  // For now, this is a placeholder
-  if (!userId) {
-    throw new AuthorizationError('User ID is required');
+export function requireAdmin(req: NextRequest): void {
+  const adminKey = req.headers.get('x-admin-api-key');
+  const configuredKey = process.env.ADMIN_API_KEY;
+
+  if (!configuredKey) {
+    throw new AuthorizationError('Server configuration error: ADMIN_API_KEY is not set');
+  }
+
+  if (!adminKey || adminKey !== configuredKey) {
+    throw new AuthorizationError('Invalid or missing Admin API Key');
   }
 }
 
