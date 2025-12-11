@@ -155,7 +155,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ tenantI
         };
 
         void poll();
-        interval = setInterval(() => void poll(), 2000);
+        interval = setInterval(() => void poll(), 500);  // Fast polling for responsive UI
 
         req.signal.addEventListener('abort', () => {
           closeStream();

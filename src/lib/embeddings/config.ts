@@ -7,9 +7,9 @@ export const EMBEDDING_CONFIG = {
   // Model dimension
   DIM: 768,
 
-  // Batching configuration
-  BATCH_SIZE: parseInt(process.env.EMBEDDING_BATCH_SIZE || '64', 10),
-  MAX_PARALLEL: parseInt(process.env.EMBEDDING_MAX_PARALLEL || '4', 10),
+  // Batching configuration - larger batches = fewer API calls
+  BATCH_SIZE: parseInt(process.env.EMBEDDING_BATCH_SIZE || '128', 10),  // Increased from 64
+  MAX_PARALLEL: parseInt(process.env.EMBEDDING_MAX_PARALLEL || '8', 10), // Increased from 4
 
   // Quantization: 'int8' (4x size reduction) or 'fp32' (full precision)
   QUANTIZATION: (process.env.EMBEDDING_QUANTIZATION || 'int8') as 'int8' | 'fp32',
@@ -20,7 +20,7 @@ export const EMBEDDING_CONFIG = {
   // Timeout and retry
   TIMEOUT_MS: 30000,
   MAX_RETRIES: 3,
-  RETRY_DELAY_MS: 1000,
+  RETRY_DELAY_MS: 500,  // Reduced from 1000ms
 } as const;
 
 /**

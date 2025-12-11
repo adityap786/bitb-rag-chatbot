@@ -50,7 +50,12 @@ export default function TrialPlayground({
     if (!effectiveTenantId || !trialToken) return;
 
     let cancelled = false;
+    let retryCount = 0;
+    const maxRetries = 20; // Stop after ~30 seconds
+    
     const checkReadiness = async () => {
+      if (cancelled || retryCount >= maxRetries) return;
+      
       try {
         const res = await fetch(`/api/tenants/${effectiveTenantId}/pipeline-ready`, {
           headers: { Authorization: `Bearer ${trialToken}` },
@@ -66,17 +71,26 @@ export default function TrialPlayground({
         if (!cancelled) {
           setPipelineReady(data.ready);
           if (!data.ready) {
-            // Poll again in 3 seconds if not ready
-            setTimeout(checkReadiness, 3000);
+            retryCount++;
+            // Exponential backoff: 1s, 1.5s, 2s, 2.5s... capped at 5s
+            const delay = Math.min(1000 + (retryCount * 500), 5000);
+            setTimeout(checkReadiness, delay);
           }
         }
       } catch (err: any) {
         if (!cancelled) {
-          setReadinessError(err.message || 'Readiness check failed');
+          retryCount++;
+          // Retry on error with longer delay
+          if (retryCount < maxRetries) {
+            setTimeout(checkReadiness, 2000);
+          } else {
+            setReadinessError(err.message || 'Readiness check failed');
+          }
         }
       }
     };
 
+    // Start immediately
     checkReadiness();
     return () => { cancelled = true; };
   }, [tenantId, trialToken]);

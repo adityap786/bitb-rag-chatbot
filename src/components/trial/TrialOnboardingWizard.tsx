@@ -10,8 +10,22 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Spinner } from '@/components/ui/spinner';
-import { CheckCircle2, Upload, Globe, FileText, Palette, Code } from 'lucide-react';
+import { CheckCircle2, Upload, Globe, FileText, Palette, Code, Loader2, ExternalLink, AlertCircle } from 'lucide-react';
+import { IconSquareRoundedX } from '@tabler/icons-react';
 import ContinueWithLoader from './ContinueWithLoader';
+import { MultiStepLoader } from '@/components/ui/multi-step-loader';
+
+// Loading states for the multi-step loader animation
+const PIPELINE_LOADING_STATES = [
+  { text: 'Initializing your workspace' },
+  { text: 'Collecting your business inputs' },
+  { text: 'Starting content ingestion' },
+  { text: 'Generating clean, structured chunks' },
+  { text: 'Creating high-quality embeddings' },
+  { text: 'Storing vectors in your database' },
+  { text: 'Finalizing your RAG pipeline' },
+  { text: 'Preparing your chatbot playground' },
+];
 
 type BusinessType = 'service' | 'ecommerce' | 'saas' | 'other';
 
@@ -62,8 +76,18 @@ export default function TrialOnboardingWizard() {
   const [platform, setPlatform] = useState('playground');
   const [knowledgeBaseSources, setKnowledgeBaseSources] = useState<string[]>([]);
   const [framework, setFramework] = useState('react');
-  const [hosting, setHosting] = useState('');
+  const [hosting, setHosting] = useState('');  
   const [logoUrl, setLogoUrl] = useState('');
+
+  // Website URL detection state
+  const [websiteUrl, setWebsiteUrl] = useState('');
+  const [detecting, setDetecting] = useState(false);
+  const [detectedPlatform, setDetectedPlatform] = useState<{ name: string; confidence: number; evidence: string[] } | null>(null);
+  const [detectionError, setDetectionError] = useState<string | null>(null);
+
+  // Full-screen loader state
+  const [showFullScreenLoader, setShowFullScreenLoader] = useState(false);
+  const [loaderStep, setLoaderStep] = useState(0);
 
   // Ingestion Polling State
   const [ingestionJobId, setIngestionJobId] = useState<string | null>(null);
@@ -71,6 +95,44 @@ export default function TrialOnboardingWizard() {
   const [ingestionStatus, setIngestionStatus] = useState<string | null>(null);
   const [trialExpired, setTrialExpired] = useState(false);
   const [trialExpiryMessage, setTrialExpiryMessage] = useState<string | null>(null);
+
+  // Website URL platform detection function
+  const detectPlatform = async () => {
+    if (!websiteUrl.trim()) return;
+    
+    setDetecting(true);
+    setDetectionError(null);
+    setDetectedPlatform(null);
+    
+    try {
+      const res = await fetch('/api/onboarding/detect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: websiteUrl.trim() }),
+      });
+      
+      const data = await res.json();
+      
+      if (!res.ok) {
+        throw new Error(data?.error || 'Failed to detect platform');
+      }
+      
+      if (data.candidates && data.candidates.length > 0) {
+        const best = data.candidates[0];
+        setDetectedPlatform(best);
+        // Auto-set framework based on detection
+        if (best.name.toLowerCase().includes('next')) setFramework('nextjs');
+        else if (best.name.toLowerCase().includes('react')) setFramework('react');
+        else if (best.name.toLowerCase().includes('svelte')) setFramework('svelte');
+      } else {
+        setDetectionError('No platform detected. You can select manually below.');
+      }
+    } catch (err: any) {
+      setDetectionError(err?.message || 'Detection failed');
+    } finally {
+      setDetecting(false);
+    }
+  };
 
   // Polling Effect
   useEffect(() => {
@@ -181,6 +243,13 @@ export default function TrialOnboardingWizard() {
           const data = await response.json();
           throw new Error(data.error || 'Failed to save knowledge base');
         }
+
+        // Capture pipeline jobId if returned
+        const data = await response.json();
+        if (data.pipelineJobId) {
+          setIngestionJobId(data.pipelineJobId);
+          setIngestionStatus('processing');
+        }
       }
 
       // Advance to branding step after saving KB
@@ -244,6 +313,13 @@ export default function TrialOnboardingWizard() {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setShowFullScreenLoader(true);
+    setLoaderStep(0);
+
+    // Simulate initial steps while API call is in progress
+    const stepTimer = setInterval(() => {
+      setLoaderStep(prev => Math.min(prev + 1, 2)); // Advance to "Starting content ingestion"
+    }, 800);
 
     try {
       const response = await fetch('/api/trial/branding', {
@@ -265,6 +341,8 @@ export default function TrialOnboardingWizard() {
         }),
       });
 
+      clearInterval(stepTimer); // Stop simulation once API responds
+
       if (!response.ok) {
         const data = await response.json();
         throw new Error(data.error || 'Failed to save branding');
@@ -283,6 +361,7 @@ export default function TrialOnboardingWizard() {
         }
         setIngestionStatus('processing');
         setIngestionProgress(0);
+        setLoaderStep(2); // "Starting content ingestion"
         setState(prev => ({
           ...prev,
           assignedTools: data.config.assignedTools,
@@ -290,6 +369,7 @@ export default function TrialOnboardingWizard() {
         }));
       } else if (pipelineStatus === 'ready') {
         setIngestionStatus('completed');
+        setShowFullScreenLoader(false);
         setIngestionProgress(100);
         setState(prev => ({
           ...prev,
@@ -368,8 +448,10 @@ export default function TrialOnboardingWizard() {
       // Clear ingestion state on success
       setIngestionJobId(null);
       setIngestionStatus('completed');
+      setShowFullScreenLoader(false);
     } catch (err: any) {
       setError(err.message);
+      setShowFullScreenLoader(false);
     } finally {
       // Only stop loading if we are not processing
       if (ingestionStatus !== 'processing') {
@@ -380,11 +462,24 @@ export default function TrialOnboardingWizard() {
 
   const handleLoaderProgress = (value: number) => {
     setIngestionProgress(value);
+    // Map progress (0-100) to loader step (0-7) with better distribution
+    // Steps: 0=Initializing, 1=Collecting, 2=Ingesting, 3=Chunking, 4=Embedding, 5=Storing, 6=Finalizing, 7=Preparing
+    let step = 0;
+    if (value >= 5) step = 1;    // Collecting inputs
+    if (value >= 15) step = 2;   // Starting ingestion
+    if (value >= 25) step = 3;   // Chunking
+    if (value >= 45) step = 4;   // Embedding (longest step)
+    if (value >= 80) step = 5;   // Storing vectors
+    if (value >= 95) step = 6;   // Finalizing
+    if (value >= 100) step = 7;  // Preparing playground
+    setLoaderStep(step);
   };
 
   const handleLoaderComplete = () => {
     setIngestionStatus('completed');
     setIngestionProgress(100);
+    setLoaderStep(PIPELINE_LOADING_STATES.length - 1);
+    setShowFullScreenLoader(false);
     setState(prev => ({ ...prev, step: 4 }));
     handleGenerateWidget();
   };
@@ -393,6 +488,7 @@ export default function TrialOnboardingWizard() {
     setError(message);
     setIngestionStatus('failed');
     setLoading(false);
+    setShowFullScreenLoader(false);
     if (message.toLowerCase().includes('session expired')) {
       setTrialExpired(true);
       setTrialExpiryMessage(message);
@@ -400,44 +496,65 @@ export default function TrialOnboardingWizard() {
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 40 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.7, ease: 'easeOut' }}
-      className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#312e81] to-[#6366f1] py-12 px-4"
-      style={{ background: 'linear-gradient(135deg, #0f172a 0%, #312e81 50%, #6366f1 100%)' }}
-    >
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <motion.div
-          className="text-center mb-8"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.2 }}
-        >
-          <h1 className="text-5xl font-extrabold text-white mb-2 drop-shadow-lg tracking-tight">
-            Plug & Play Chatbot Onboarding
-          </h1>
-          <p className="text-xl text-white/80 font-medium">
-            Experience user ecstasy. Set up your AI chatbot in minutes.
-          </p>
-        </motion.div>
+    <>
+      {/* Full-screen Multi-Step Loader */}
+      <MultiStepLoader
+        loadingStates={PIPELINE_LOADING_STATES}
+        loading={showFullScreenLoader}
+        duration={2000}
+        loop={false}
+        value={loaderStep}
+      />
 
-        {/* Progress Steps */}
-        <motion.div className="flex justify-between mb-8" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5, delay: 0.3 }}>
-          {STEPS.map((step) => {
-            const Icon = step.icon;
-            const isActive = state.step === step.number;
-            const isCompleted = state.step > step.number;
-            return (
-              <motion.div
-                key={step.number}
-                className="flex flex-col items-center flex-1"
-                whileHover={{ scale: 1.08 }}
-                transition={{ type: 'spring', stiffness: 300 }}
-              >
+      {/* Close button for loader */}
+      {showFullScreenLoader && (
+        <button
+          className="fixed top-4 right-4 text-white z-[120] hover:text-gray-300 transition-colors"
+          onClick={() => setShowFullScreenLoader(false)}
+          aria-label="Close loader"
+        >
+          <IconSquareRoundedX className="h-10 w-10" />
+        </button>
+      )}
+
+      <motion.div
+        initial={{ opacity: 0, y: 40 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.7, ease: 'easeOut' }}
+        className="min-h-screen bg-gradient-to-br from-[#0f172a] via-[#312e81] to-[#6366f1] py-12 px-4"
+        style={{ background: 'linear-gradient(135deg, #0f172a 0%, #312e81 50%, #6366f1 100%)' }}
+      >
+        <div className="max-w-4xl mx-auto">
+          {/* Header */}
+          <motion.div
+            className="text-center mb-8"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+          >
+            <h1 className="text-5xl font-extrabold text-white mb-2 drop-shadow-lg tracking-tight">
+              Plug & Play Chatbot Onboarding
+            </h1>
+            <p className="text-xl text-white/80 font-medium">
+              Experience user ecstasy. Set up your AI chatbot in minutes.
+            </p>
+          </motion.div>
+
+          {/* Progress Steps */}
+          <motion.div className="flex justify-between mb-8" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5, delay: 0.3 }}>
+            {STEPS.map((step) => {
+              const Icon = step.icon;
+              const isActive = state.step === step.number;
+              const isCompleted = state.step > step.number;
+              return (
                 <motion.div
-                  className={`w-14 h-14 rounded-full flex items-center justify-center mb-2 shadow-lg border-2 ${
+                  key={step.number}
+                  className="flex flex-col items-center flex-1"
+                  whileHover={{ scale: 1.08 }}
+                  transition={{ type: 'spring', stiffness: 300 }}
+                >
+                  <motion.div
+                    className={`w-14 h-14 rounded-full flex items-center justify-center mb-2 shadow-lg border-2 ${
                     isCompleted
                       ? 'bg-gradient-to-br from-green-400 to-emerald-600 text-white border-green-400'
                       : isActive
@@ -520,6 +637,88 @@ export default function TrialOnboardingWizard() {
                     <SelectItem value="other">Other</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              {/* Website URL Detection */}
+              <div className="space-y-2">
+                <Label htmlFor="websiteUrl">Website URL (optional - auto-detects your platform)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="websiteUrl"
+                    type="url"
+                    value={websiteUrl}
+                    onChange={(e) => {
+                      setWebsiteUrl(e.target.value);
+                      setDetectedPlatform(null);
+                      setDetectionError(null);
+                    }}
+                    placeholder="https://yourwebsite.com"
+                    className="flex-1"
+                  />
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={detectPlatform}
+                    disabled={detecting || !websiteUrl.trim()}
+                    className="whitespace-nowrap"
+                  >
+                    {detecting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Detecting...
+                      </>
+                    ) : (
+                      <>
+                        <Globe className="w-4 h-4 mr-2" />
+                        Detect
+                      </>
+                    )}
+                  </Button>
+                </div>
+
+                {/* Detection Result - Success */}
+                <AnimatePresence>
+                  {detectedPlatform && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className="p-3 rounded-lg bg-green-500/10 border border-green-500/30"
+                    >
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-5 h-5 text-green-400" />
+                        <span className="font-medium text-green-300">
+                          Detected: {detectedPlatform.name}
+                        </span>
+                        <span className="text-sm text-green-400/70 ml-auto">
+                          {Math.round(detectedPlatform.confidence * 100)}% confidence
+                        </span>
+                      </div>
+                      {detectedPlatform.evidence.length > 0 && (
+                        <p className="text-xs text-green-400/60 mt-1 ml-7">
+                          Evidence: {detectedPlatform.evidence.join(', ')}
+                        </p>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Detection Result - Error */}
+                <AnimatePresence>
+                  {detectionError && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30"
+                    >
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="w-5 h-5 text-amber-400" />
+                        <span className="text-sm text-amber-300">{detectionError}</span>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
               <Button type="submit" className="w-full" disabled={loading}>
@@ -809,7 +1008,8 @@ export default function TrialOnboardingWizard() {
           </motion.div>
         )}
         </AnimatePresence>
-      </div>
-    </motion.div>
+        </div>
+      </motion.div>
+    </>
   );
 }

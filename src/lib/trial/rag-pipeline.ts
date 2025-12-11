@@ -55,8 +55,7 @@ export async function insertEmbeddings(
   validateTenantId(tenantId);
   if (chunks.length === 0) return;
 
-  // Ensure RLS context is set
-  await setTenantContext(supabase, tenantId);
+  // Service role bypasses RLS - no need for setTenantContext
 
   const records = chunks.map((chunk, i) => ({
     kb_id: chunk.kbId,
@@ -153,8 +152,7 @@ export async function hybridSearch(
     // 1) Vector search (get extra candidates)
     const [queryEmbedding] = await generateEmbeddings([query]);
 
-    // Ensure RLS context is set for RPC
-    await setTenantContext(supabase, tenantId);
+    // match_embeddings RPC receives tenant parameter - no need for setTenantContext
 
     const { data: vdata, error: verror } = await supabase.rpc('match_embeddings', {
       query_embedding: queryEmbedding,

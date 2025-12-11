@@ -17,7 +17,12 @@ function timestamp() {
 async function upsertStepRecord(jobId: string, stepKey: IngestionStepKey, payload: Record<string, any>) {
   await supabase
     .from('ingestion_job_steps')
-    .upsert({ job_id: jobId, step_key: stepKey, ...payload }, { onConflict: 'job_id,step_key' });
+    .upsert({ 
+      job_id: jobId, 
+      step_key: stepKey, 
+      updated_at: timestamp(),  // Always update for SSE change detection
+      ...payload 
+    }, { onConflict: 'job_id,step_key' });
 }
 
 export async function recordStepStart(jobId: string, stepKey: IngestionStepKey, options?: StepOptions) {

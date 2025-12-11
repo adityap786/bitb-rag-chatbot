@@ -16,6 +16,7 @@ import {
 import { verifyBearerToken } from '@/lib/trial/auth';
 import TrialLogger from '@/lib/trial/logger';
 import { createLazyServiceClient } from '@/lib/supabase-client';
+import { startTenantPipeline } from '@/lib/trial/start-pipeline';
 
 const supabase = createLazyServiceClient();
 
@@ -144,6 +145,22 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
       sourceType: 'manual',
       faqCount: body.faqs?.length || 0,
     });
+
+    // Start pipeline immediately after KB submission to reduce perceived latency
+    let pipelineJobId: string | null = null;
+    let pipelineStatus: string | null = null;
+    try {
+      const pipeline = await startTenantPipeline(tenantId, {
+        source: 'manual',
+        skipIfProcessing: true, // Don't restart if already running
+      });
+      pipelineJobId = pipeline.jobId;
+      pipelineStatus = pipeline.status;
+    } catch (err) {
+      // Non-fatal: frontend can poll status
+      TrialLogger.warn('Failed to auto-start pipeline after KB', { requestId, tenantId, error: (err as Error).message });
+    }
+
     TrialLogger.logRequest('POST', '/api/trial/kb/manual', 201, Date.now() - startTime, {
       requestId,
       tenantId,
@@ -153,6 +170,8 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
       kbId: kb.kb_id,
       status: 'queued',
       message: 'Knowledge base entry created successfully',
+      pipelineJobId,
+      pipelineStatus,
     });
   } catch (error) {
     const duration = Date.now() - startTime;

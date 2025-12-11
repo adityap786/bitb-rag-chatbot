@@ -157,33 +157,24 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
       TrialLogger.logModification('widget_config', 'create', config.config_id, tenantId, { requestId });
     }
 
-    // Trigger pipeline build automatically after branding
-    let pipelineJobId: string | null = null;
-    let pipelineStartedAt: string | null = null;
-    try {
-      const pipeline = await startTenantPipeline(tenantId, {
-        source: 'branding',
-        metadata: {
-          trigger: 'branding',
-          businessType: tenant.business_type,
-          platform,
-          framework,
-          hosting,
-          logoUrl,
-          knowledgeBaseSources,
-          primaryColor: body.primaryColor,
-          secondaryColor: body.secondaryColor,
-          tone: body.tone,
-          welcomeMessage: body.welcomeMessage,
-        },
-        skipIfProcessing: true,
-      });
-      pipelineJobId = pipeline.jobId;
-      pipelineStartedAt = pipeline.startedAt ?? null;
-    } catch (err) {
-      // Non-fatal: allow frontend to retry
-      TrialLogger.warn('Failed to auto-start pipeline after branding', { requestId, tenantId, error: (err as Error).message });
-    }
+    // Pipeline already started at KB step - just check current status
+    const { data: tenantStatus } = await supabase
+      .from('trial_tenants')
+      .select('rag_status')
+      .eq('tenant_id', tenantId)
+      .single();
+
+    const { data: latestJob } = await supabase
+      .from('ingestion_jobs')
+      .select('job_id, started_at')
+      .eq('tenant_id', tenantId)
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const pipelineJobId = latestJob?.job_id || null;
+    const pipelineStartedAt = latestJob?.started_at || null;
+    const currentRagStatus = tenantStatus?.rag_status || 'pending';
 
     TrialLogger.logRequest('POST', '/api/trial/branding', 200, Date.now() - startTime, { requestId, tenantId });
 
@@ -202,7 +193,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
         assignedTools: config.assigned_tools,
       },
       pipeline: {
-        status: pipelineJobId ? 'processing' : tenant.rag_status,
+        status: currentRagStatus,
         jobId: pipelineJobId,
         startedAt: pipelineStartedAt,
       },

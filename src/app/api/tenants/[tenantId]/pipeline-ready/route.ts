@@ -1,69 +1,92 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createLazyServiceClient, setTenantContext } from '@/lib/supabase-client';
+import { createLazyServiceClient } from '@/lib/supabase-client';
 import { verifyBearerToken } from '@/lib/trial/auth';
 import { isPipelineReady } from '@/lib/trial/pipeline-readiness';
 
 const supabase = createLazyServiceClient();
 export const runtime = 'nodejs';
 
-export async function GET(req: NextRequest, context: { params: Promise<{ tenantId: string }> }) {
-  try {
-    const token = verifyBearerToken(req);
-    const { tenantId } = await context.params;
+// Cache readiness for 3 seconds to reduce DB load during polling
+const readinessCache = new Map<string, { ready: boolean; data: any; ts: number }>();
+const CACHE_TTL_MS = 3000;
 
+// Cleanup old cache entries periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of readinessCache.entries()) {
+    if (now - value.ts > CACHE_TTL_MS * 2) {
+      readinessCache.delete(key);
+    }
+  }
+}, 10000);
+
+export async function GET(req: NextRequest, context: { params: Promise<{ tenantId: string }> }) {
+  const startTime = Date.now();
+  
+  try {
+    // Fast path: check cache BEFORE any async operations
+    const { tenantId } = await context.params;
+    const cached = readinessCache.get(tenantId);
+    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+      return NextResponse.json(cached.data, {
+        headers: { 'X-Cache': 'HIT', 'X-Response-Time': `${Date.now() - startTime}ms` }
+      });
+    }
+
+    // Verify token (fast, in-memory JWT verification)
+    const token = verifyBearerToken(req);
     if (token.tenantId !== tenantId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    // Check tenant status
-    const { data: tenant, error: tenantError } = await supabase
-      .from('trial_tenants')
-      .select('rag_status, status')
-      .eq('tenant_id', tenantId)
-      .single();
+    // REMOVED: setTenantContext - not needed with service role key (bypasses RLS)
+    // The service role key has full access, RLS policies don't apply
+
+    // Run all 3 queries in parallel - this is the main latency
+    const [tenantResult, jobResult, vectorResult] = await Promise.all([
+      // Query 1: Tenant status (fast - single row by PK)
+      supabase
+        .from('trial_tenants')
+        .select('rag_status, status')
+        .eq('tenant_id', tenantId)
+        .single(),
+      
+      // Query 2: Latest job (fast - index on tenant_id + updated_at)
+      supabase
+        .from('ingestion_jobs')
+        .select('job_id, status, updated_at, embeddings_count')
+        .eq('tenant_id', tenantId)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      
+      // Query 3: Vector count (can be slow on large tables - use head:true for count only)
+      supabase
+        .from('embeddings')
+        .select('*', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId),
+    ]);
+
+    const { data: tenant, error: tenantError } = tenantResult;
+    const { data: lastJob } = jobResult;
+    const { count: vectorCount = 0 } = vectorResult;
 
     if (tenantError || !tenant) {
       return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
-    }
-
-    // Ensure tenant context for RLS-controlled tables
-    await setTenantContext(supabase, tenantId);
-
-    // Latest job (any status) to expose version/progress
-    const { data: lastJob, error: lastJobError } = await supabase
-      .from('ingestion_jobs')
-      .select('job_id, status, updated_at, embeddings_count')
-      .eq('tenant_id', tenantId)
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    if (lastJobError && lastJobError.code !== 'PGRST116') {
-      return NextResponse.json({ error: 'Failed to load ingestion job' }, { status: 500 });
-    }
-
-    // Vector count for readiness thresholding
-    const { count: vectorCount = 0, error: vectorError } = await supabase
-      .from('embeddings')
-      .select('embedding_id', { count: 'exact', head: true })
-      .eq('tenant_id', tenantId);
-
-    if (vectorError) {
-      return NextResponse.json({ error: 'Failed to count vectors' }, { status: 500 });
     }
 
     const minVectors = Number(process.env.MIN_PIPELINE_VECTORS ?? '10');
     const ready = isPipelineReady({
       ragStatus: tenant.rag_status,
       lastJobStatus: lastJob?.status || null,
-      vectorCount,
+      vectorCount: vectorCount ?? 0,
       minVectors,
     });
 
-    return NextResponse.json({
+    const responseData = {
       ready,
       ragStatus: tenant.rag_status,
-      vectorCount,
+      vectorCount: vectorCount ?? 0,
       minVectors,
       lastIngestion: lastJob ? {
         jobId: lastJob.job_id,
@@ -71,6 +94,13 @@ export async function GET(req: NextRequest, context: { params: Promise<{ tenantI
         completedAt: lastJob.updated_at,
         embeddingsCount: lastJob.embeddings_count ?? null,
       } : null,
+    };
+
+    // Cache the result
+    readinessCache.set(tenantId, { ready, data: responseData, ts: Date.now() });
+
+    return NextResponse.json(responseData, {
+      headers: { 'X-Cache': 'MISS', 'X-Response-Time': `${Date.now() - startTime}ms` }
     });
 
   } catch (error: any) {
