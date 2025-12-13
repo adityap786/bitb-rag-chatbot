@@ -137,6 +137,7 @@ export const ChatbotSettings = ({ config, onConfigChange, onClose }: ChatbotSett
               <div className="space-y-2">
                 <Label htmlFor="fontFamily">Font Family</Label>
                 <Select
+                  name="fontFamily"
                   value={localConfig.fontFamily}
                   onValueChange={(value) =>
                     setLocalConfig({ ...localConfig, fontFamily: value })
@@ -158,6 +159,7 @@ export const ChatbotSettings = ({ config, onConfigChange, onClose }: ChatbotSett
               <div className="space-y-2">
                 <Label htmlFor="theme">Theme</Label>
                 <Select
+                  name="theme"
                   value={localConfig.theme}
                   onValueChange={(value: "light" | "dark" | "auto") =>
                     setLocalConfig({ ...localConfig, theme: value })
@@ -177,6 +179,7 @@ export const ChatbotSettings = ({ config, onConfigChange, onClose }: ChatbotSett
               <div className="space-y-2">
                 <Label htmlFor="layout">Layout</Label>
                 <Select
+                  name="layout"
                   value={localConfig.layout}
                   onValueChange={(value: "compact" | "standard" | "expanded") =>
                     setLocalConfig({ ...localConfig, layout: value })

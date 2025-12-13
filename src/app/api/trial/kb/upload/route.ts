@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verify } from 'jsonwebtoken';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import type { KBUploadResponse } from '@/types/trial';
 import { PDFParse } from 'pdf-parse';
 import mammoth from 'mammoth';
@@ -18,6 +18,7 @@ import {
 import { verifyBearerToken } from '@/lib/trial/auth';
 import TrialLogger from '@/lib/trial/logger';
 import { createLazyServiceClient } from '@/lib/supabase-client';
+import { rateLimit, RATE_LIMITS } from '@/middleware/rate-limit';
 
 const supabase = createLazyServiceClient();
 
@@ -58,9 +59,13 @@ async function extractTextFromFile(file: File, buffer: Buffer): Promise<string> 
 
 export async function POST(req: any, context: { params: Promise<{}> }) {
   const startTime = Date.now();
-  const requestId = crypto.randomUUID();
+  const requestId = randomUUID();
 
   try {
+    // Cheap IP/user rate limiting before auth/DB/multipart parsing
+    const ipRateLimitResponse = await rateLimit(req, RATE_LIMITS.trial);
+    if (ipRateLimitResponse) return ipRateLimitResponse;
+
     // Verify authentication
     let token;
     try {
@@ -80,7 +85,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
 
     // Check tenant exists and is active
     const { data: tenant, error: tenantError } = await supabase
-      .from('trial_tenants')
+      .from('tenants')
       .select('status')
       .eq('tenant_id', tenantId)
       .single();
@@ -203,7 +208,10 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
             filename: file.name,
             kbId: '',
             status: 'failed',
-            error: 'Failed to process file',
+            error:
+              process.env.NODE_ENV !== 'production'
+                ? (insertError?.message || 'Failed to process file')
+                : 'Failed to process file',
           } as any);
           continue;
         }
@@ -229,7 +237,10 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
           filename: file.name,
           kbId: '',
           status: 'failed',
-          error: 'Error processing file',
+          error:
+            process.env.NODE_ENV !== 'production'
+              ? ((err as Error)?.message || 'Error processing file')
+              : 'Error processing file',
         } as any);
       }
     }

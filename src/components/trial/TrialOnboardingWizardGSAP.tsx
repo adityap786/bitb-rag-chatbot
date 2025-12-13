@@ -1,3 +1,5 @@
+'use client';
+
 import { useEffect, useRef, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,6 +12,7 @@ import { Progress } from '@/components/ui/progress';
 import gsap from 'gsap';
 import PlatformDetector from '@/components/trial/PlatformDetector';
 import TrialPlayground from '@/components/trial/TrialPlayground';
+import MultiStepLoader from '@/components/trial/MultiStepLoader';
 
 const STEPS = [
   { number: 1, title: 'Business & Knowledge Base' },
@@ -19,6 +22,8 @@ const STEPS = [
 ];
 
 export default function TrialOnboardingWizardGSAP() {
+  const STORAGE_KEY = 'trial_onboarding_gsap_session_v1';
+
     // Knowledge Base step state
     const [kbSource, setKbSource] = useState<'manual' | 'upload' | 'crawl'>('manual');
     const [kbFiles, setKbFiles] = useState<File[]>([]);
@@ -47,7 +52,111 @@ export default function TrialOnboardingWizardGSAP() {
   const [embedCode, setEmbedCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
-  const [trialToken, setTrialToken] = useState('demo_token');
+  const [trialToken, setTrialToken] = useState('');
+  const [tenantId, setTenantId] = useState<string | null>(null);
+  const [ingestionRunId, setIngestionRunId] = useState<string | null>(null);
+  const [ingestionProgress, setIngestionProgress] = useState(0);
+  const [ingestionComplete, setIngestionComplete] = useState(false);
+
+  // Rehydrate onboarding state after reload (session-scoped).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.sessionStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+
+      if (typeof parsed?.step === 'number') setStep(parsed.step);
+      if (typeof parsed?.progress === 'number') setProgress(parsed.progress);
+
+      if (typeof parsed?.email === 'string') setEmail(parsed.email);
+      if (typeof parsed?.businessName === 'string') setBusinessName(parsed.businessName);
+      if (typeof parsed?.businessType === 'string') setBusinessType(parsed.businessType);
+      if (typeof parsed?.companyInfo === 'string') setCompanyInfo(parsed.companyInfo);
+
+      if (typeof parsed?.primaryColor === 'string') setPrimaryColor(parsed.primaryColor);
+      if (typeof parsed?.secondaryColor === 'string') setSecondaryColor(parsed.secondaryColor);
+      if (typeof parsed?.chatTone === 'string') setChatTone(parsed.chatTone);
+      if (typeof parsed?.welcomeMessage === 'string') setWelcomeMessage(parsed.welcomeMessage);
+
+      if (typeof parsed?.kbSource === 'string') setKbSource(parsed.kbSource);
+      if (typeof parsed?.crawlUrls === 'string') setCrawlUrls(parsed.crawlUrls);
+      if (typeof parsed?.crawlDepth === 'number') setCrawlDepth(parsed.crawlDepth);
+
+      if (typeof parsed?.selectedPlatform === 'string' || parsed?.selectedPlatform === null) {
+        setSelectedPlatform(parsed.selectedPlatform);
+      }
+      if (typeof parsed?.showEmbed === 'boolean') setShowEmbed(parsed.showEmbed);
+
+      if (typeof parsed?.trialToken === 'string') setTrialToken(parsed.trialToken);
+      if (typeof parsed?.tenantId === 'string' || parsed?.tenantId === null) setTenantId(parsed.tenantId);
+      if (typeof parsed?.embedCode === 'string' || parsed?.embedCode === null) setEmbedCode(parsed.embedCode);
+
+      if (typeof parsed?.ingestionRunId === 'string' || parsed?.ingestionRunId === null) {
+        setIngestionRunId(parsed.ingestionRunId);
+      }
+      if (typeof parsed?.ingestionProgress === 'number') setIngestionProgress(parsed.ingestionProgress);
+      if (typeof parsed?.ingestionComplete === 'boolean') setIngestionComplete(parsed.ingestionComplete);
+    } catch {
+      // Ignore malformed session data
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist onboarding state (session-scoped) so refresh keeps trial context.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const payload = {
+        step,
+        progress,
+        email,
+        businessName,
+        businessType,
+        companyInfo,
+        primaryColor,
+        secondaryColor,
+        chatTone,
+        welcomeMessage,
+        kbSource,
+        crawlUrls,
+        crawlDepth,
+        selectedPlatform,
+        showEmbed,
+        trialToken,
+        tenantId,
+        embedCode,
+        ingestionRunId,
+        ingestionProgress,
+        ingestionComplete,
+      };
+      window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+      // Ignore storage quota/unavailable
+    }
+  }, [
+    step,
+    progress,
+    email,
+    businessName,
+    businessType,
+    companyInfo,
+    primaryColor,
+    secondaryColor,
+    chatTone,
+    welcomeMessage,
+    kbSource,
+    crawlUrls,
+    crawlDepth,
+    selectedPlatform,
+    showEmbed,
+    trialToken,
+    tenantId,
+    embedCode,
+    ingestionRunId,
+    ingestionProgress,
+    ingestionComplete,
+  ]);
 
   // GSAP refs
   const wizardRef = useRef<HTMLDivElement>(null);
@@ -78,6 +187,245 @@ export default function TrialOnboardingWizardGSAP() {
     setProgress((p) => Math.min(p + 100 / STEPS.length, 100));
   }
 
+  async function handleStep2Submit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+
+    if (!trialToken || !tenantId) {
+      setError('Missing trial session. Please restart onboarding.');
+      return;
+    }
+
+    if (!selectedPlatform) {
+      setError('Please select a platform');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const brandingRes = await fetch('/api/trial/branding', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${trialToken}`,
+        },
+        body: JSON.stringify({
+          primaryColor,
+          secondaryColor,
+          tone: chatTone,
+          welcomeMessage,
+          platform: selectedPlatform,
+        }),
+      });
+
+      const brandingData = await brandingRes.json().catch(() => null);
+      if (!brandingRes.ok) {
+        throw new Error(brandingData?.error || 'Failed to save branding');
+      }
+
+      const jobId = brandingData?.pipeline?.jobId ?? null;
+      if (typeof jobId === 'string' && jobId.length > 0) {
+        setIngestionRunId(jobId);
+      }
+
+      nextStep();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'An error occurred';
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleGenerateEmbed() {
+    setError(null);
+
+    if (!trialToken || !tenantId) {
+      setError('Missing trial session. Please restart onboarding.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/trial/generate-widget', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${trialToken}`,
+        },
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (res.status === 202 && data?.jobId) {
+        setIngestionRunId(data.jobId);
+        setIngestionComplete(false);
+        setError('Your widget is still being prepared. Please finish ingestion in the Playground step.');
+        setStep(3);
+        return;
+      }
+
+      if (!res.ok) {
+        throw new Error(data?.error || 'Failed to generate widget code');
+      }
+
+      if (!data?.embedCode) {
+        throw new Error('Widget response did not include embed code');
+      }
+
+      setEmbedCode(data.embedCode);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'An error occurred';
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleStep1Submit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+
+    try {
+      // Validate inputs
+      if (!email || !businessName || !businessType) {
+        setError('Please fill in all required fields');
+        setLoading(false);
+        return;
+      }
+
+      if (kbSource === 'manual' && !companyInfo) {
+        setError('Please provide business description');
+        setLoading(false);
+        return;
+      }
+
+      // Step 1a: Create trial account
+      const trialStartRes = await fetch('/api/trial/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          businessName,
+          businessType,
+        }),
+      });
+
+      if (!trialStartRes.ok) {
+        const errData = await trialStartRes.json();
+        throw new Error(errData.error || 'Failed to create trial account');
+      }
+
+      const trialStartData = await trialStartRes.json();
+      const { tenantId: newTenantId, setupToken } = trialStartData;
+
+      // Store for later use
+      setTrialToken(setupToken);
+      setTenantId(newTenantId);
+
+      // Step 1b: Submit knowledge base
+      if (kbSource === 'manual') {
+        // No-op here; manual KB is submitted below.
+      } else if (kbSource === 'upload' && kbFiles.length > 0) {
+        const formData = new FormData();
+        kbFiles.forEach(file => formData.append('files', file));
+
+        const kbRes = await fetch('/api/trial/kb/upload', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${setupToken}`,
+          },
+          body: formData,
+        });
+
+        if (!kbRes.ok) {
+          const errData = await kbRes.json();
+          throw new Error(errData.error || 'Failed to upload knowledge base');
+        }
+      } else if (kbSource === 'crawl' && crawlUrls) {
+        const urls = crawlUrls.split(',').map(u => u.trim()).filter(Boolean);
+
+        const kbRes = await fetch('/api/trial/kb/crawl', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${setupToken}`,
+          },
+          body: JSON.stringify({ urls, depth: crawlDepth }),
+        });
+
+        if (!kbRes.ok) {
+          const errData = await kbRes.json();
+          throw new Error(errData.error || 'Failed to crawl website');
+        }
+      }
+      
+      // Submit manual KB if that's the source
+      if (kbSource === 'manual') {
+        const kbRes = await fetch('/api/trial/kb/manual', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${setupToken}`,
+          },
+          body: JSON.stringify({
+            companyInfo,
+            faqs: [],
+          }),
+        });
+
+        if (!kbRes.ok) {
+          const errData = await kbRes.json();
+          throw new Error(errData.error || 'Failed to submit knowledge base');
+        }
+      }
+
+      // Step 1c: Start ingestion pipeline (or attach to existing run)
+      try {
+        const ingestRes = await fetch(`/api/tenants/${newTenantId}/ingest`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${setupToken}`,
+          },
+          body: JSON.stringify({
+            source: kbSource,
+            metadata: {
+              kbSource,
+              crawlDepth: kbSource === 'crawl' ? crawlDepth : undefined,
+              crawlUrls: kbSource === 'crawl' ? crawlUrls : undefined,
+              uploadFileCount: kbSource === 'upload' ? kbFiles.length : undefined,
+            },
+          }),
+        });
+
+        const ingestData = await ingestRes.json().catch(() => null);
+        if (ingestRes.status === 409 && ingestData?.runId) {
+          setIngestionRunId(ingestData.runId);
+          setIngestionComplete(false);
+        } else if (ingestRes.ok && ingestData?.runId) {
+          setIngestionRunId(ingestData.runId);
+          setIngestionComplete(false);
+        } else if (!ingestRes.ok) {
+          // Non-fatal: Playground has its own readiness checks, but we log for visibility.
+          console.warn('Failed to start ingestion pipeline', { status: ingestRes.status, ingestData });
+        }
+      } catch (err) {
+        console.warn('Failed to start ingestion pipeline', err);
+      }
+
+      // Success - move to next step
+      nextStep();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'An error occurred';
+      setError(message);
+      console.error('Step 1 error:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div ref={wizardRef} className="w-full max-w-4xl mx-auto bg-black rounded-3xl border border-white/10 p-8 shadow-2xl">
       <div className="mb-8">
@@ -103,7 +451,7 @@ export default function TrialOnboardingWizardGSAP() {
       )}
       {step === 1 && (
         <Card className="bg-black border border-white/10 p-6" ref={el => { stepRefs.current[0] = el; }}>
-          <form onSubmit={e => { e.preventDefault(); nextStep(); }} className="space-y-4 max-h-[65vh] overflow-y-auto">
+          <form onSubmit={handleStep1Submit} className="space-y-4 max-h-[65vh] overflow-y-auto">
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label htmlFor="email" className="text-sm">Email Address</Label>
@@ -118,7 +466,7 @@ export default function TrialOnboardingWizardGSAP() {
               <div>
                 <Label htmlFor="businessType" className="text-sm">Business Type</Label>
                 <Select value={businessType} onValueChange={setBusinessType}>
-                  <SelectTrigger id="businessType" name="businessType" autoComplete="organization-type" className="bg-black text-white border-white/20"><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="businessType" name="businessType" className="bg-black text-white border-white/20"><SelectValue /></SelectTrigger>
                   <SelectContent className="bg-black text-white">
                     <SelectItem value="service">Service</SelectItem>
                     <SelectItem value="ecommerce">E-commerce</SelectItem>
@@ -130,7 +478,7 @@ export default function TrialOnboardingWizardGSAP() {
               <div>
                 <Label htmlFor="kbSource" className="text-sm mb-2">Knowledge Base Source</Label>
                 <Select value={kbSource} onValueChange={v => setKbSource(v as 'manual' | 'upload' | 'crawl')}>
-                  <SelectTrigger id="kbSource" name="kbSource" autoComplete="off" className="bg-black text-white border-white/20"><SelectValue placeholder="Select source" /></SelectTrigger>
+                  <SelectTrigger id="kbSource" name="kbSource" className="bg-black text-white border-white/20"><SelectValue placeholder="Select source" /></SelectTrigger>
                   <SelectContent className="bg-black text-white">
                     <SelectItem value="manual">Manual Input</SelectItem>
                     <SelectItem value="upload">Document Upload</SelectItem>
@@ -170,13 +518,13 @@ export default function TrialOnboardingWizardGSAP() {
               </div>
             )}
 
-            <Button type="submit" className="w-full bg-white text-black font-bold">Continue</Button>
+            <Button type="submit" disabled={loading} className="w-full bg-white text-black font-bold disabled:opacity-50">{loading ? 'Creating Trial...' : 'Continue'}</Button>
           </form>
         </Card>
       )}
       {step === 2 && (
         <Card className="bg-black border border-white/10 p-6" ref={el => { stepRefs.current[1] = el; }}>
-          <form onSubmit={e => { e.preventDefault(); nextStep(); }} className="space-y-4 max-h-[65vh] overflow-y-auto">
+          <form onSubmit={handleStep2Submit} className="space-y-4 max-h-[65vh] overflow-y-auto">
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label htmlFor="primaryColor" className="text-sm">Primary Color</Label>
@@ -206,37 +554,86 @@ export default function TrialOnboardingWizardGSAP() {
             <div className="mt-6 mb-3 text-white text-base font-semibold">Where is your website hosted?</div>
             <PlatformDetector selectedPlatform={selectedPlatform} setSelectedPlatform={setSelectedPlatform} />
 
-            <Button type="submit" className="w-full bg-white text-black font-bold mt-6" disabled={!selectedPlatform}>Continue</Button>
+            <Button type="submit" className="w-full bg-white text-black font-bold mt-6" disabled={!selectedPlatform || loading}>
+              {loading ? 'Saving…' : 'Continue'}
+            </Button>
           </form>
         </Card>
       )}
       {step === 3 && (
         <Card className="border border-white/10 p-6 bg-transparent" ref={el => { stepRefs.current[2] = el; }}>
-          <TrialPlayground
-            formData={{ primaryColor, chatName: businessName || 'Support Assistant' }}
-            trialToken={trialToken}
-            tenantId={process.env.NEXT_PUBLIC_DEMO_TENANT_ID || undefined}
-          />
+          {tenantId && trialToken && ingestionRunId && !ingestionComplete ? (
+            <div className="mb-6">
+              <MultiStepLoader
+                jobId={ingestionRunId}
+                tenantId={tenantId}
+                token={trialToken}
+                initialProgress={ingestionProgress}
+                onProgress={(value) => setIngestionProgress(value)}
+                onComplete={() => {
+                  setIngestionComplete(true);
+                  setIngestionProgress(100);
+                }}
+                onFailure={(message) => setError(message)}
+              />
+            </div>
+          ) : null}
+
+          {ingestionRunId && !ingestionComplete ? null : (
+            <TrialPlayground
+              formData={{ primaryColor, secondaryColor, chatName: businessName || 'Support Assistant' }}
+              trialToken={trialToken}
+              tenantId={tenantId || process.env.NEXT_PUBLIC_DEMO_TENANT_ID || undefined}
+            />
+          )}
           <div className="mt-6">
-            <Button className="w-full bg-white text-black font-bold" onClick={() => nextStep()}>Continue to Widget Code</Button>
+            <Button
+              className="w-full bg-white text-black font-bold"
+              onClick={() => nextStep()}
+              disabled={Boolean(ingestionRunId && !ingestionComplete)}
+            >
+              Continue to Widget Code
+            </Button>
           </div>
         </Card>
       )}
       {step === 4 && (
         <Card className="border border-white/10 p-6 bg-transparent text-center" ref={el => { stepRefs.current[3] = el; }}>
           {!showEmbed && (
-            <Button className="bg-white text-black font-bold w-full" onClick={() => setShowEmbed(true)}>
+            <Button
+              className="bg-white text-black font-bold w-full"
+              onClick={async () => {
+                setShowEmbed(true);
+                if (!embedCode) {
+                  await handleGenerateEmbed();
+                }
+              }}
+              disabled={loading}
+            >
               Generate Plug & Play embedding
             </Button>
           )}
           {showEmbed && (
             <>
               <div className="flex justify-end mb-1">
-                <Button size="sm" variant="outline" className="text-xs px-2 py-1 h-7" onClick={() => {
-                  navigator.clipboard.writeText(embedCodeGen(selectedPlatform));
-                }}>Copy to Clipboard</Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-xs px-2 py-1 h-7"
+                  onClick={async () => {
+                    if (!embedCode) {
+                      await handleGenerateEmbed();
+                    }
+                    if (embedCode) {
+                      await navigator.clipboard.writeText(embedCode);
+                    }
+                  }}
+                  disabled={loading}
+                >
+                  Copy to Clipboard
+                </Button>
               </div>
-              <pre className="bg-black text-white border border-white/20 rounded-lg p-4 mb-4 text-xs overflow-x-auto">{embedCodeGen(selectedPlatform)}</pre>
+              <pre className="bg-black text-white border border-white/20 rounded-lg p-4 mb-4 text-xs overflow-x-auto">{embedCode || 'Generating widget code…'}</pre>
             </>
           )}
           <div className="mt-4 text-white/40 text-xs">Trial is restricted to 3 days per tenant. All data is isolated and auto-purged after expiry.</div>
@@ -246,24 +643,4 @@ export default function TrialOnboardingWizardGSAP() {
   );
 }
 
-function embedCodeGen(platform: string | null) {
-  const tn = 'tn_demo';
-  const theme = 'auto';
-  const p = platform ?? 'generic';
-  if (p === 'Shopify') {
-    return `<script src=\"https://cdn.example.com/bitb-widget.v1.js\" data-tenant-id=\"${tn}\" data-platform=\"shopify\" async></script>`;
-  }
-  if (p === 'WordPress') {
-    return `<script src=\"https://cdn.example.com/bitb-widget.v1.js\" data-tenant-id=\"${tn}\" data-platform=\"wordpress\" async></script>`;
-  }
-  if (p === 'Wix') {
-    return `<script src=\"https://cdn.example.com/bitb-widget.v1.js\" data-tenant-id=\"${tn}\" data-platform=\"wix\" async></script>`;
-  }
-  if (p === 'Framer') {
-    return `<script src=\"https://cdn.example.com/bitb-widget.v1.js\" data-tenant-id=\"${tn}\" data-platform=\"framer\" async></script>`;
-  }
-  if (p === 'Next.js') {
-    return `<script src=\"/bitb-widget.v1.js\" data-tenant-id=\"${tn}\" data-platform=\"next\" defer></script>`;
-  }
-  return `<script src=\"https://cdn.example.com/bitb-widget.v1.js\" data-tenant-id=\"${tn}\" data-theme=\"${theme}\"></script>`;
-}
+// embed code is generated by /api/trial/generate-widget

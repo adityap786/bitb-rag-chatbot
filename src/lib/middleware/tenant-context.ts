@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { validateTenantId } from "@/lib/rag/supabase-retriever";
+import { verifyToken } from "@/lib/trial/auth";
 
 interface TenantContextBody {
   tenant_id?: string;
@@ -22,10 +23,11 @@ interface TenantContextBody {
  * Returns null if valid, NextResponse error if invalid
  */
 export async function validateTenantContext(
-  request: NextRequest
+  request: NextRequest,
+  providedBody?: TenantContextBody
 ): Promise<NextResponse | null> {
   try {
-    const body = (await request.json()) as TenantContextBody;
+    const body = (providedBody ?? await request.json()) as TenantContextBody;
     const { tenant_id, trial_token } = body;
 
     // SECURITY: Fail closed if tenant_id missing or invalid
@@ -96,13 +98,21 @@ async function validateTrialToken(
   trialToken: string,
   tenantId: string
 ): Promise<boolean> {
-  // Validate trial_token format
-  const trialTokenRegex = /^tr_[a-f0-9]{32}$/;
-  if (!trialTokenRegex.test(trialToken)) {
-    return false;
-  }
-
   try {
+    // Accept JWT setup/access tokens (preferred path)
+    try {
+      const payload = verifyToken(trialToken);
+      if (payload.tenantId === tenantId) {
+        return true;
+      }
+    } catch {
+      // Fall through to legacy token validation
+    }
+
+    // Legacy token format check (skip strict failure; allow other formats)
+    const trialTokenRegex = /^tr_[a-f0-9]{32}$/;
+    const isLegacyToken = trialTokenRegex.test(trialToken);
+
     const supabaseUrl = process.env.SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -111,37 +121,32 @@ async function validateTrialToken(
     }
 
     const client = createClient(supabaseUrl, supabaseKey);
-
-    // Set RLS context
-    await client.rpc("set_tenant_context", { p_tenant_id: tenantId });
-
-    // Query trials table with RLS enforcement
+    // Query tenants table (canonical source)
     const { data, error } = await client
-      .from("trials")
-      .select("tenant_id, expires_at, status, queries_used, queries_limit")
-      .eq("trial_token", trialToken)
-      .eq("tenant_id", tenantId) // Explicit filter for defense in depth
+      .from("tenants")
+      .select("tenant_id, expires_at, status, metadata")
+      .eq("tenant_id", tenantId)
       .single();
 
     if (error || !data) {
       return false;
     }
 
-    // Check if trial is expired
-    if (data.status !== "active") {
-      return false;
+    // Match against stored setup_token if present
+    const storedToken = (data.metadata as any)?.setup_token;
+    if (storedToken && storedToken === trialToken) {
+      // Ensure active/non-expired
+      if (data.status === "expired" || data.status === "cancelled") return false;
+      if (data.expires_at && new Date(data.expires_at) < new Date()) return false;
+      return true;
     }
 
-    if (new Date(data.expires_at) < new Date()) {
-      return false;
+    // Legacy trial token path (if table stored legacy tokens elsewhere)
+    if (isLegacyToken) {
+      return false; // No legacy storage available; fail closed
     }
 
-    // Check if query limit exceeded
-    if (data.queries_used >= data.queries_limit) {
-      return false;
-    }
-
-    return true;
+    return false;
   } catch (error) {
     console.error("Trial token validation error:", error);
     return false; // Fail closed on error

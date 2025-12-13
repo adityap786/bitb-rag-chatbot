@@ -6,6 +6,7 @@ import { ChatAudit, ErrorAudit, TrialAudit } from '@/lib/trial/audit-logger';
 import { checkTenantRateLimit } from '../../../../middleware/tenant-rate-limit';
 import { z } from 'zod';
 import { logger } from '../../../../lib/observability/logger';
+import { randomUUID } from 'crypto';
 
 const supabase = createLazyServiceClient();
 
@@ -18,7 +19,7 @@ const sessionInitSchema = z.object({
 });
 
 export async function POST(req: any, context: { params: Promise<{}> }) {
-  const requestId = req.headers.get('x-request-id') || crypto.randomUUID();
+  const requestId = req.headers.get('x-request-id') || randomUUID();
   const startTime = Date.now();
   let tracker: any;
 
@@ -58,8 +59,8 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
 
     // Verify tenant exists and is active
     const { data: tenant } = await supabase
-      .from('trial_tenants')
-      .select('status, trial_expires_at')
+      .from('tenants')
+      .select('status, expires_at')
       .eq('tenant_id', tenantId)
       .single();
 
@@ -89,11 +90,11 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
 
     // Check if trial has expired
     const now = new Date();
-    const expiresAt = new Date(tenant.trial_expires_at);
+    const expiresAt = new Date(tenant.expires_at);
     if (now > expiresAt) {
       // Update tenant status
       await supabase
-        .from('trial_tenants')
+        .from('tenants')
         .update({ status: 'expired' })
         .eq('tenant_id', tenantId);
 

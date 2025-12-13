@@ -58,8 +58,8 @@ export async function enforceQuota(
   try {
     // Get tenant's current plan/trial status
     const { data: tenant, error: tenantError } = await supabase
-      .from('trial_tenants')
-      .select('status, plan_upgraded_to, created_at')
+      .from('tenants')
+      .select('status, plan, created_at')
       .eq('tenant_id', tenantId)
       .single();
 
@@ -74,9 +74,9 @@ export async function enforceQuota(
 
     // Determine plan type
     let planType: keyof typeof DEFAULT_QUOTAS = 'trial';
-    if (tenant.plan_upgraded_to === 'starter') planType = 'starter';
-    else if (tenant.plan_upgraded_to === 'pro') planType = 'pro';
-    else if (tenant.plan_upgraded_to === 'enterprise') planType = 'enterprise';
+    if (tenant.plan === 'starter') planType = 'starter';
+    else if (tenant.plan === 'pro') planType = 'pro';
+    else if (tenant.plan === 'enterprise') planType = 'enterprise';
 
     const quotaLimit = getQuotaLimit(planType, quotaType);
 
@@ -261,8 +261,8 @@ export async function getQuotaStatus(tenantId: string): Promise<{
 }> {
   try {
     const { data: tenant, error: tenantError } = await supabase
-      .from('trial_tenants')
-      .select('plan_upgraded_to, status')
+      .from('tenants')
+      .select('plan, status')
       .eq('tenant_id', tenantId)
       .single();
 
@@ -270,7 +270,7 @@ export async function getQuotaStatus(tenantId: string): Promise<{
       throw tenantError;
     }
 
-    const plan = tenant.plan_upgraded_to || 'trial';
+    const plan = tenant.plan || 'trial';
 
     // Get today's usage
     const today = new Date();

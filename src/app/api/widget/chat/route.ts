@@ -8,6 +8,7 @@ import { ChatAudit, ErrorAudit } from '@/lib/trial/audit-logger';
 import { detectAndMaskPHI } from '@/lib/healthcare/compliance';
 import { getLegalDisclaimer, analyzeDocument } from '@/lib/legal/compliance';
 import { checkTenantRateLimit } from '../../../../middleware/tenant-rate-limit';
+import { rateLimit, RATE_LIMITS } from '@/middleware/rate-limit';
 import { logger } from '../../../../lib/observability/logger';
 // Utility to mask PII (simple email/phone masking)
 function maskPII(str: string): string {
@@ -27,6 +28,7 @@ const supabase = createLazyServiceClient();
 import { getLLM } from '@/lib/llm/factory';
 import { generateText } from 'ai';
 import { validateTenantId } from '@/lib/security/rag-guardrails';
+import { randomUUID } from 'crypto';
 
 async function generateChatResponse(
   prompt: string,
@@ -52,15 +54,20 @@ async function generateChatResponse(
       { role: 'user', content: `Context:\n${context}\n\nQuestion: ${prompt}` },
     ],
     temperature: 0.7,
-    maxTokens: 500,
+    maxOutputTokens: 500,
   });
 
   return text;
 }
 
 export async function POST(req: any, context: { params: Promise<{}> }) {
-  const requestId = req.headers.get('x-request-id') || crypto.randomUUID();
+  const requestId = req.headers.get('x-request-id') || randomUUID();
   const startTime = Date.now();
+
+  // Cheap IP/user-level rate limiting before any DB lookups
+  const ipRateLimitResponse = await rateLimit(req, RATE_LIMITS.chat);
+  if (ipRateLimitResponse) return ipRateLimitResponse;
+
   // Monitoring: import and prepare metrics
   const { recordApiCall, incrementMetric, observeLatency } = await import('@/lib/monitoring');
   const { recordChatApiMetrics } = await import('@/lib/monitoring/metrics');
@@ -115,12 +122,23 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
     let batchMessages: Array<{ query: string; metadata?: Record<string, any> }> = [];
     let messageLength = 0;
     if (body.sessionId) {
-      const { data: session } = await supabase
+      const { data: sessionForTenant, error: sessionForTenantError } = await supabase
         .from('chat_sessions')
         .select('tenant_id')
         .eq('session_id', body.sessionId)
-        .single();
-      tenantId = session?.tenant_id;
+        .maybeSingle();
+
+      if (sessionForTenantError && sessionForTenantError.code !== 'PGRST116') {
+        logger.error('Failed to lookup session tenant for rate limiting', { message: sessionForTenantError.message, requestId });
+      }
+
+      if (!sessionForTenant) {
+        await ErrorAudit.apiError(undefined, '/api/widget/chat', 404, 'Session not found', requestId);
+        TrialLogger.logRequest('POST', '/api/widget/chat', 404, Date.now() - startTime, { requestId });
+        return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+      }
+
+      tenantId = sessionForTenant.tenant_id;
     }
 
     // Token Verification (Optional but enforced if provided)
@@ -142,8 +160,8 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
     // Strict Trial Status Check
     if (tenantId) {
        const { data: tenantStatus } = await supabase
-        .from('trial_tenants')
-        .select('status, trial_expires_at')
+        .from('tenants')
+        .select('status, expires_at')
         .eq('tenant_id', tenantId)
         .single();
        
@@ -153,7 +171,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
        if (tenantStatus.status !== 'active') {
           return NextResponse.json({ error: 'Trial is not active' }, { status: 403 });
        }
-       if (new Date(tenantStatus.trial_expires_at) < new Date()) {
+       if (new Date(tenantStatus.expires_at) < new Date()) {
           return NextResponse.json({ error: 'Trial has expired' }, { status: 403 });
        }
     }
@@ -196,7 +214,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
     // Get session
     const { data: session } = await supabase
       .from('chat_sessions')
-      .select('*, trial_tenants(status, trial_expires_at, business_type)')
+      .select('*, tenants(status, expires_at, metadata, industry_vertical)')
       .eq('session_id', body.sessionId)
       .single();
 
@@ -238,9 +256,9 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
     }
 
     // Check tenant status
-    const tenant = Array.isArray(session.trial_tenants)
-      ? session.trial_tenants[0]
-      : session.trial_tenants;
+    const tenant = Array.isArray(session.tenants)
+      ? session.tenants[0]
+      : session.tenants;
 
     // Vertical-specific metadata to be injected into response
     let legalDisclaimer: string | undefined;
@@ -252,7 +270,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
     let productResults: any[] | undefined;
 
     // Healthcare Compliance Check
-    if (tenant?.business_type?.toLowerCase() === 'healthcare') {
+    if (tenant?.industry_vertical?.toLowerCase() === 'healthcare') {
       const messageText = isBatch 
         ? batchMessages.map(m => m.query).join(' ') 
         : (body as any).message || '';
@@ -277,7 +295,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
     }
 
     // Legal Compliance & Disclaimer Injection
-    if (tenant?.business_type?.toLowerCase() === 'legal') {
+    if (tenant?.industry_vertical?.toLowerCase() === 'legal') {
       const jurisdiction = tenant?.jurisdiction || 'US';
       legalDisclaimer = getLegalDisclaimer(jurisdiction);
       
@@ -298,7 +316,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
     }
 
     // Financial Compliance & Disclaimer Injection
-    if (tenant?.business_type?.toLowerCase() === 'financial') {
+    if (tenant?.industry_vertical?.toLowerCase() === 'financial') {
       const { getFinancialDisclaimer, checkTransaction } = await import('@/lib/financial/compliance');
       financialDisclaimer = getFinancialDisclaimer();
       
@@ -323,7 +341,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
     }
 
     // Real Estate: listing search, disclaimers, scheduling metadata
-    if (['real_estate', 'realestate'].includes((tenant?.business_type || '').toLowerCase())) {
+    if (['real_estate', 'realestate'].includes((tenant?.industry_vertical || '').toLowerCase())) {
       const { searchProperties, getListingById: _getListingById, scheduleViewing: _scheduleViewing } = await import('@/lib/realestate/utils');
       realEstateDisclaimer = 'Listings are for informational purposes only. Confirm details with the listing agent.';
 
@@ -353,7 +371,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
     }
 
     // E-commerce: product search
-    if (['ecommerce', 'retail', 'shop'].includes((tenant?.business_type || '').toLowerCase())) {
+    if (['ecommerce', 'retail', 'shop'].includes((tenant?.industry_vertical || '').toLowerCase())) {
       const { searchProducts } = await import('@/lib/ecommerce/products');
       
       if (isBatch) {

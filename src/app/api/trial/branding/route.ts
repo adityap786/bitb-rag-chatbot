@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'crypto';
 import type { BrandingRequest, WidgetConfig } from '@/types/trial';
 import { assignTools, analyzeKnowledgeBase, generatePromptTemplate } from '@/lib/trial/tool-assignment';
 import {
@@ -16,14 +17,19 @@ import { verifyBearerToken, verifyTenantOwnership } from '@/lib/trial/auth';
 import TrialLogger from '@/lib/trial/logger';
 import { createLazyServiceClient } from '@/lib/supabase-client';
 import { startTenantPipeline } from '@/lib/trial/start-pipeline';
+import { rateLimit, RATE_LIMITS } from '@/middleware/rate-limit';
 
 const supabase = createLazyServiceClient();
 
 export async function POST(req: any, context: { params: Promise<{}> }) {
   const startTime = Date.now();
-  const requestId = crypto.randomUUID();
+  const requestId = randomUUID();
 
   try {
+    // Cheap IP/user rate limiting before auth/DB work
+    const ipRateLimitResponse = await rateLimit(req, RATE_LIMITS.trial);
+    if (ipRateLimitResponse) return ipRateLimitResponse;
+
     // Verify authentication
     let token;
     try {
@@ -67,8 +73,8 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
 
     // Get tenant info for business type
     const { data: tenant, error: tenantError } = await supabase
-      .from('trial_tenants')
-      .select('business_type, status')
+      .from('tenants')
+      .select('industry_vertical, status')
       .eq('tenant_id', tenantId)
       .single();
 
@@ -93,8 +99,8 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
 
     const documents = (kbDocs || []).map(doc => doc.raw_text);
     const kbAnalysis = analyzeKnowledgeBase(documents);
-    const tools = assignTools(tenant.business_type, kbAnalysis);
-    const promptTemplate = generatePromptTemplate(tenant.business_type, tools);
+    const tools = assignTools(tenant.industry_vertical, kbAnalysis);
+    const promptTemplate = generatePromptTemplate(tenant.industry_vertical, tools);
 
     // Check if widget config already exists
     const { data: existing, error: existingError } = await supabase
@@ -158,15 +164,9 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
     }
 
     // Pipeline already started at KB step - just check current status
-    const { data: tenantStatus } = await supabase
-      .from('trial_tenants')
-      .select('rag_status')
-      .eq('tenant_id', tenantId)
-      .single();
-
     const { data: latestJob } = await supabase
       .from('ingestion_jobs')
-      .select('job_id, started_at')
+      .select('job_id, status, started_at, updated_at, embeddings_count')
       .eq('tenant_id', tenantId)
       .order('started_at', { ascending: false })
       .limit(1)
@@ -174,7 +174,17 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
 
     const pipelineJobId = latestJob?.job_id || null;
     const pipelineStartedAt = latestJob?.started_at || null;
-    const currentRagStatus = tenantStatus?.rag_status || 'pending';
+    const minVectors = Number(process.env.MIN_PIPELINE_VECTORS ?? '10');
+    const embeddingsCount = typeof latestJob?.embeddings_count === 'number' ? latestJob.embeddings_count : 0;
+    const jobStatus = latestJob?.status || null;
+    const pipelineStatus =
+      jobStatus === 'queued' || jobStatus === 'processing'
+        ? 'processing'
+        : jobStatus === 'completed' && embeddingsCount >= Math.max(minVectors, 0)
+          ? 'ready'
+          : jobStatus === 'failed'
+            ? 'failed'
+            : 'pending';
 
     TrialLogger.logRequest('POST', '/api/trial/branding', 200, Date.now() - startTime, { requestId, tenantId });
 
@@ -193,7 +203,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
         assignedTools: config.assigned_tools,
       },
       pipeline: {
-        status: currentRagStatus,
+        status: pipelineStatus,
         jobId: pipelineJobId,
         startedAt: pipelineStartedAt,
       },

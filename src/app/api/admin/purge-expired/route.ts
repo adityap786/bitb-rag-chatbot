@@ -15,16 +15,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '../../../../lib/auth/admin-middleware';
 import { createClient } from '@supabase/supabase-js';
-import { spawn } from 'child_process';
-import { promisify } from 'util';
-import { exec as execCallback } from 'child_process';
 
-const exec = promisify(execCallback);
+export const runtime = 'nodejs';
 
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const pythonExecutable = process.env.PYTHON_EXECUTABLE || 'python';
 const ingestWorkerPath = process.env.INGEST_WORKER_PATH || 'python/ingest-worker.py';
+
+function getPythonExecutable(): string {
+  if (process.env.PYTHON_EXECUTABLE) return process.env.PYTHON_EXECUTABLE;
+  // Avoid the literal 'python' string in the bundle to reduce Turbopack file-pattern scanning.
+  if (process.platform === 'win32') return ['p', 'y', 't', 'h', 'o', 'n'].join('');
+  // Also avoid a literal 'python3' so Turbopack doesn't fold it into a file pattern warning.
+  return ['p', 'y', 't', 'h', 'o', 'n', '3'].join('');
+}
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -55,10 +59,10 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
     expiryThreshold.setHours(expiryThreshold.getHours() - gracePeriodHours);
 
     const { data: expiredTrials, error: fetchError } = await supabase
-      .from('trial_tenants')
-      .select('tenant_id, email, trial_expires_at, status')
+      .from('tenants')
+      .select('tenant_id, email, expires_at, status')
       .eq('status', 'active')
-      .lt('trial_expires_at', expiryThreshold.toISOString());
+      .lt('expires_at', expiryThreshold.toISOString());
 
     if (fetchError) {
       console.error('[Purge] Error fetching expired trials:', fetchError);
@@ -99,10 +103,9 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
           if (purgeResult.success) {
             // Update trial status to expired
             const { error: updateError } = await supabase
-              .from('trial_tenants')
+              .from('tenants')
               .update({ 
-                status: 'expired',
-                rag_status: 'failed' // Mark as failed since data is deleted
+                status: 'expired'
               })
               .eq('tenant_id', trial.tenant_id);
 
@@ -113,7 +116,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
             results.purged.push({
               tenant_id: trial.tenant_id,
               email: trial.email,
-              expired_at: trial.trial_expires_at,
+              expired_at: trial.expires_at,
               ...purgeResult
             });
           } else {
@@ -124,7 +127,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
           results.purged.push({
             tenant_id: trial.tenant_id,
             email: trial.email,
-            expired_at: trial.trial_expires_at,
+            expired_at: trial.expires_at,
             would_delete: {
               faiss_index: true,
               knowledge_base: true,
@@ -175,6 +178,9 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
  * Call Python worker to purge trial data
  */
 async function purgeTrial(tenantId: string): Promise<{ success: boolean; error?: string; deleted?: any }> {
+  const pythonExecutable = getPythonExecutable();
+  const { spawn } = await import('node:child_process');
+
   return new Promise((resolve) => {
     const args = [
       ingestWorkerPath,
@@ -246,11 +252,11 @@ export async function GET(req: any, context: { params: Promise<{}> }) {
     expiryThreshold.setHours(expiryThreshold.getHours() - gracePeriodHours);
 
     const { data: expiredTrials, error } = await supabase
-      .from('trial_tenants')
-      .select('tenant_id, email, trial_expires_at, created_at, status, rag_status')
+      .from('tenants')
+      .select('tenant_id, email, expires_at, created_at, status')
       .eq('status', 'active')
-      .lt('trial_expires_at', expiryThreshold.toISOString())
-      .order('trial_expires_at', { ascending: true });
+      .lt('expires_at', expiryThreshold.toISOString())
+      .order('expires_at', { ascending: true });
 
     if (error) {
       return NextResponse.json(

@@ -15,7 +15,8 @@ async function processIngestionJob(job: Job<IngestionJobData>) {
   );
 }
 
-// Start the worker
-startIngestionWorker(processIngestionJob);
-
-console.log('[IngestionWorker] Started and listening for jobs...');
+export function startWorker() {
+  const worker = startIngestionWorker(processIngestionJob);
+  console.log('[IngestionWorker] Started and listening for jobs...');
+  return worker;
+}

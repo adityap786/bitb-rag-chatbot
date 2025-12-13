@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createLazyServiceClient } from '@/lib/supabase-client';
 import { verifyBearerToken } from '@/lib/trial/auth';
 import type { IngestionStepKey, IngestionSseEvent } from '@/types/ingestion';
+import { rateLimit, RATE_LIMITS } from '@/middleware/rate-limit';
 
 const supabase = createLazyServiceClient();
 export const runtime = 'nodejs';
@@ -35,6 +36,9 @@ function buildEventPayload(row: any, jobId: string, tenantId: string): Ingestion
 
 export async function GET(req: NextRequest, context: { params: Promise<{ tenantId: string; runId: string }> }) {
   try {
+    const ipRateLimitResponse = await rateLimit(req, RATE_LIMITS.tenantIngestStatus);
+    if (ipRateLimitResponse) return ipRateLimitResponse;
+
     const token = verifyBearerToken(req);
     const { tenantId, runId } = await context.params;
 

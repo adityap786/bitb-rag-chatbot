@@ -23,11 +23,10 @@ import {
   validateTenantContext,
 } from "@/lib/middleware/tenant-context";
 import TrialLogger from '@/lib/trial/logger';
-
-// Simple in-memory rate limiter (for demo; use Redis/Supabase for production)
-const tenantRateLimits = new Map<string, { count: number; windowStart: number }>();
-const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
-const RATE_LIMIT_MAX = 10;
+import { isPipelineReady } from '@/lib/trial/pipeline-readiness';
+import { rateLimit, RATE_LIMITS } from '@/middleware/rate-limit';
+import { checkTenantRateLimit } from '@/middleware/tenant-rate-limit';
+import { enforceQuota } from '@/lib/trial/quota-enforcer';
 
 /**
  * Handle batch query with SSE progress updates
@@ -156,15 +155,33 @@ async function handleBatchQuery(
 
 export async function POST(request: any, context: { params: Promise<{}> }) {
   const startTime = Date.now();
+  const correlationId = request.headers.get('x-correlation-id') || `ask-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   let tenant_id: string | undefined = undefined;
   try {
+    // Baseline IP/user rate limit (cheap, before parsing user payload)
+    const ipRateLimitResponse = await rateLimit(request, RATE_LIMITS.ask);
+    if (ipRateLimitResponse) return ipRateLimitResponse;
+
+    // Parse body once (NextRequest body is single-consumption)
+    let body: any;
+    try {
+      body = await request.json();
+    } catch (err) {
+      return NextResponse.json(
+        {
+          error: 'SECURITY: Invalid request format',
+          code: 'INVALID_REQUEST',
+        },
+        { status: 400 }
+      );
+    }
+
     // SECURITY: Validate tenant context (fail-closed)
-    const validationError = await validateTenantContext(request);
+    const validationError = await validateTenantContext(request, body);
     if (validationError) {
       return validationError;
     }
 
-    const body = await request.json();
     const { tenant_id: tid, trial_token, query, queries, batch, responseCharacterLimit, sessionId } = body as {
       tenant_id: string;
       trial_token?: string;
@@ -176,27 +193,33 @@ export async function POST(request: any, context: { params: Promise<{}> }) {
     };
     tenant_id = tid;
 
-    // Handle batch mode
-    if (batch && queries && queries.length > 0) {
-      return handleBatchQuery(tenant_id, trial_token, queries, sessionId, startTime);
-    }
-
-    // Per-tenant rate limiting
-    const now = Date.now();
-    let rateInfo = tenantRateLimits.get(tenant_id);
-    if (!rateInfo || now - rateInfo.windowStart > RATE_LIMIT_WINDOW_MS) {
-      rateInfo = { count: 0, windowStart: now };
-    }
-    rateInfo.count++;
-    tenantRateLimits.set(tenant_id, rateInfo);
-    if (rateInfo.count > RATE_LIMIT_MAX) {
+    // Tenant-scoped rate limiting (prevents one tenant from hogging capacity)
+    // 30 req/min per tenant is a reasonable default for trial traffic.
+    const tenantAllowed = await checkTenantRateLimit(tenant_id, 30, 60);
+    if (!tenantAllowed) {
       return NextResponse.json(
         {
-          error: "Rate limit exceeded. Please wait before sending more requests.",
-          code: "RATE_LIMIT_EXCEEDED",
+          error: 'Rate limit exceeded. Please wait before sending more requests.',
+          code: 'RATE_LIMIT_EXCEEDED',
         },
         { status: 429 }
       );
+    }
+
+    // Handle batch mode (enforce token quota before starting SSE work)
+    if (batch && queries && queries.length > 0) {
+      const estimatedTokens = Math.max(150, queries.length * 150);
+      const quotaCheck = await enforceQuota(tenant_id, 'tokens', estimatedTokens);
+      if (!quotaCheck.allowed) {
+        return NextResponse.json(
+          {
+            error: 'Quota exceeded. Please upgrade your plan.',
+            quota_remaining: quotaCheck.tokens_remaining,
+          },
+          { status: 429 }
+        );
+      }
+      return handleBatchQuery(tenant_id, trial_token, queries, sessionId, startTime);
     }
 
     if (!query || !query.trim()) {
@@ -221,6 +244,22 @@ export async function POST(request: any, context: { params: Promise<{}> }) {
             error: "Query limit exceeded. Please upgrade your plan.",
             code: "QUERY_LIMIT_EXCEEDED",
             queries_remaining: 0,
+          },
+          { status: 429 }
+        );
+      }
+    }
+
+    // Enforce per-tenant daily token quota for /api/ask as well.
+    // Estimate is conservative to avoid accidental over-blocking.
+    {
+      const estimatedTokens = Math.max(200, estimateTokensFromText(query) + 300);
+      const quotaCheck = await enforceQuota(tenant_id, 'tokens', estimatedTokens);
+      if (!quotaCheck.allowed) {
+        return NextResponse.json(
+          {
+            error: 'Quota exceeded. Please upgrade your plan.',
+            quota_remaining: quotaCheck.tokens_remaining,
           },
           { status: 429 }
         );
@@ -253,14 +292,71 @@ export async function POST(request: any, context: { params: Promise<{}> }) {
       }
     }
     
-    // Get tenant LLM preferences
+    // Get tenant LLM preferences and enforce pipeline readiness before querying
     const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     await supabase.rpc('set_tenant_context', { p_tenant_id: tenant_id });
-    const { data: trial } = await supabase
-      .from('trials')
-      .select('llm_provider, llm_model')
-      .eq('tenant_id', tenant_id)
-      .single();
+
+    const [trialResult, lastJobResult, tenantStatusResult] = await Promise.all([
+      supabase
+        .from('trials')
+        .select('llm_provider, llm_model')
+        .eq('tenant_id', tenant_id)
+        .single(),
+      supabase
+        .from('ingestion_jobs')
+        .select('status, updated_at, job_id, embeddings_count')
+        .eq('tenant_id', tenant_id)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from('tenants')
+        .select('status')
+        .eq('tenant_id', tenant_id)
+        .single(),
+    ]);
+
+    const { data: trial } = trialResult;
+    const { data: lastJob } = lastJobResult;
+    let vectorCount = typeof (lastJob as any)?.embeddings_count === 'number' ? (lastJob as any).embeddings_count : 0;
+    if (!lastJob || typeof (lastJob as any).embeddings_count !== 'number') {
+      const { count } = await supabase
+        .from('embeddings')
+        .select('*', { count: 'exact', head: true })
+        .eq('tenant_id', tenant_id);
+      vectorCount = count ?? 0;
+    }
+    const { data: tenantStatus } = tenantStatusResult;
+
+    const minVectors = Number(process.env.MIN_PIPELINE_VECTORS ?? '10');
+    const ready = isPipelineReady({
+      ragStatus: tenantStatus?.status || null,
+      lastJobStatus: lastJob?.status || null,
+      vectorCount: vectorCount ?? 0,
+      minVectors,
+    });
+
+    if (!ready) {
+      TrialLogger.warn('Ask blocked: pipeline not ready', {
+        tenantId: tenant_id,
+        vectorCount,
+        lastJobStatus: lastJob?.status,
+        minVectors,
+        correlationId,
+      });
+      return NextResponse.json(
+        {
+          error: 'pipeline_not_ready',
+          message: 'Your knowledge base is still preparing. Please wait a moment and try again.',
+          code: 'PIPELINE_NOT_READY',
+          retryAfterMs: 5000,
+          vectorCount: vectorCount ?? 0,
+          lastJobStatus: lastJob?.status || null,
+          correlationId,
+        },
+        { status: 425 }
+      );
+    }
 
     const llmProvider = trial?.llm_provider || 'groq';
     const llmModel = trial?.llm_model || 'llama-3-groq-70b-8192-tool-use-preview';
@@ -345,6 +441,7 @@ export async function POST(request: any, context: { params: Promise<{}> }) {
     TrialLogger.error('Ask API error', error instanceof Error ? error : undefined, {
       tenantId: tenant_id,
       path: '/api/ask',
+      correlationId,
     });
     return NextResponse.json(
       {
@@ -352,8 +449,15 @@ export async function POST(request: any, context: { params: Promise<{}> }) {
         sources: [],
         confidence: 0.1,
         error: "Internal server error",
+        correlationId,
       },
       { status: 500 },
     );
   }
+}
+
+function estimateTokensFromText(text: string): number {
+  // Rough approximation: ~4 chars per token for English-like text.
+  const normalized = String(text || '');
+  return Math.ceil(normalized.length / 4);
 }

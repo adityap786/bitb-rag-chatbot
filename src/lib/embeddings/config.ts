@@ -3,13 +3,38 @@
  * Optimized for production throughput and cost
  */
 
+
+/**
+ * Embedding throughput tuning:
+ * - Production: BATCH_SIZE=128, MAX_PARALLEL=4-8 (match CPU/worker count)
+ * - Staging:    BATCH_SIZE=64,  MAX_PARALLEL=2-4
+ * - Development: BATCH_SIZE=16, MAX_PARALLEL=1-2 (avoid local overload)
+ *
+ * Tune via environment variables:
+ *   EMBEDDING_BATCH_SIZE, EMBEDDING_MAX_PARALLEL
+ *
+ * Too much parallelism can increase tail latency due to CPU contention.
+ */
+
+function getDefaultBatchSize() {
+  if (process.env.NODE_ENV === 'production') return 128;
+  if (process.env.NODE_ENV === 'development') return 16;
+  return 64; // staging/test
+}
+
+function getDefaultMaxParallel() {
+  if (process.env.NODE_ENV === 'production') return 8;
+  if (process.env.NODE_ENV === 'development') return 2;
+  return 4; // staging/test
+}
+
 export const EMBEDDING_CONFIG = {
   // Model dimension
   DIM: 768,
 
   // Batching configuration - larger batches = fewer API calls
-  BATCH_SIZE: parseInt(process.env.EMBEDDING_BATCH_SIZE || '128', 10),  // Increased from 64
-  MAX_PARALLEL: parseInt(process.env.EMBEDDING_MAX_PARALLEL || '8', 10), // Increased from 4
+  BATCH_SIZE: parseInt(process.env.EMBEDDING_BATCH_SIZE || String(getDefaultBatchSize()), 10),
+  MAX_PARALLEL: parseInt(process.env.EMBEDDING_MAX_PARALLEL || String(getDefaultMaxParallel()), 10),
 
   // Quantization: 'int8' (4x size reduction) or 'fp32' (full precision)
   QUANTIZATION: (process.env.EMBEDDING_QUANTIZATION || 'int8') as 'int8' | 'fp32',

@@ -19,40 +19,12 @@
  * ```
  */
 
-import Redis from 'ioredis';
+import { redis as upstashRedis } from '@/lib/redis-client';
 import { NextRequest, NextResponse } from 'next/server';
 
-// Initialize Redis client
-let redis: InstanceType<typeof Redis> | null = null;
-
-function getRedisClient(): InstanceType<typeof Redis> {
-  if (!redis) {
-    const redisUrl = process.env.REDIS_URL || process.env.UPSTASH_REDIS_URL;
-    
-    if (!redisUrl) {
-      throw new Error('REDIS_URL or UPSTASH_REDIS_URL environment variable is required');
-    }
-    
-    redis = new Redis(redisUrl, {
-      maxRetriesPerRequest: 3,
-      retryStrategy: (times: number) => {
-        const delay = Math.min(times * 50, 2000);
-        return delay;
-      },
-      enableReadyCheck: false,
-      lazyConnect: true
-    });
-    
-    redis.on('error', (err) => {
-      console.error('Redis connection error:', err);
-    });
-    
-    redis.on('connect', () => {
-      console.log('Redis connected successfully');
-    });
-  }
-  
-  return redis;
+// Use Upstash Redis client via central `redis` export
+function getRedisClient(): any {
+  return upstashRedis as any;
 }
 
 export interface RateLimitConfig {
@@ -85,7 +57,12 @@ function getIdentifier(req: NextRequest | Request): string {
   
   // Fall back to IP address
   const forwarded = req.headers.get('x-forwarded-for');
-  const ip = forwarded ? forwarded.split(',')[0].trim() : 'unknown';
+  const realIp = req.headers.get('x-real-ip');
+  const ip = forwarded
+    ? forwarded.split(',')[0].trim()
+    : realIp
+      ? realIp.trim()
+      : 'unknown';
   
   return `ip:${ip}`;
 }
@@ -95,7 +72,7 @@ function getIdentifier(req: NextRequest | Request): string {
  * Uses sorted sets to track requests in a time window
  */
 async function slidingWindowRateLimit(
-  redis: InstanceType<typeof Redis>,
+  redis: any,
   key: string,
   config: RateLimitConfig
 ): Promise<RateLimitResult> {
@@ -152,7 +129,7 @@ async function slidingWindowRateLimit(
  * Uses incrementing counter with TTL
  */
 async function fixedWindowRateLimit(
-  redis: InstanceType<typeof Redis>,
+  redis: any,
   key: string,
   config: RateLimitConfig
 ): Promise<RateLimitResult> {
@@ -203,7 +180,7 @@ async function fixedWindowRateLimit(
  * Good for APIs that need to handle occasional spikes
  */
 async function tokenBucketRateLimit(
-  redis: InstanceType<typeof Redis>,
+  redis: any,
   key: string,
   config: RateLimitConfig
 ): Promise<RateLimitResult> {
@@ -243,10 +220,10 @@ async function tokenBucketRateLimit(
     // Consume one token
     tokens -= 1;
     
-    await redis.setex(
+    await redis.set(
       key,
-      config.windowSeconds,
-      JSON.stringify({ tokens, lastRefill: now })
+      JSON.stringify({ tokens, lastRefill: now }),
+      { ex: config.windowSeconds }
     );
     
     return {
@@ -396,6 +373,54 @@ export const RATE_LIMITS = {
     windowSeconds: 60,
     keyPrefix: 'rl:chat',
     strategy: 'token-bucket' as const
+  },
+
+  // RAG query endpoint (heavier than widget chat)
+  ask: {
+    maxRequests: 30,
+    windowSeconds: 60,
+    keyPrefix: 'rl:ask',
+    strategy: 'token-bucket' as const
+  },
+
+  // Trial/onboarding endpoints
+  trial: {
+    maxRequests: 20,
+    windowSeconds: 60,
+    keyPrefix: 'rl:trial',
+    strategy: 'sliding' as const
+  },
+
+  // Trial start should be stricter than general trial calls
+  trialStart: {
+    maxRequests: 5,
+    windowSeconds: 60,
+    keyPrefix: 'rl:trial_start',
+    strategy: 'fixed' as const
+  },
+
+  // Polling/status endpoints (e.g. ingestion status) need a higher ceiling
+  trialStatus: {
+    maxRequests: 120,
+    windowSeconds: 60,
+    keyPrefix: 'rl:trial_status',
+    strategy: 'token-bucket' as const
+  },
+
+  // Tenant ingestion start is expensive (DB + queue + embedding pipeline)
+  tenantIngestStart: {
+    maxRequests: 10,
+    windowSeconds: 60,
+    keyPrefix: 'rl:tenant_ingest_start',
+    strategy: 'token-bucket' as const
+  },
+
+  // Tenant ingestion status/events are polled/streamed frequently
+  tenantIngestStatus: {
+    maxRequests: 240,
+    windowSeconds: 60,
+    keyPrefix: 'rl:tenant_ingest_status',
+    strategy: 'token-bucket' as const
   }
 };
 
@@ -469,8 +494,12 @@ export async function resetRateLimit(
  * Cleanup function for graceful shutdown
  */
 export async function closeRedis(): Promise<void> {
-  if (redis) {
-    await redis.quit();
-    redis = null;
+  try {
+    const client = getRedisClient();
+    if (client && typeof client.quit === 'function') {
+      await client.quit();
+    }
+  } catch (err) {
+    // best-effort
   }
 }

@@ -40,9 +40,9 @@ export default function PlatformDetector({ selectedPlatform, setSelectedPlatform
 
   return (
     <div className="space-y-4">
-      <Label>Website URL (optional)</Label>
+      <Label htmlFor="platformUrl">Website URL (optional)</Label>
       <div className="flex gap-2">
-        <Input placeholder="https://example.com" value={url} onChange={(e) => setUrl(e.target.value)} className="flex-1 bg-black text-white border-white/20" />
+        <Input id="platformUrl" name="platformUrl" placeholder="https://example.com" value={url} onChange={(e) => setUrl(e.target.value)} className="flex-1 bg-black text-white border-white/20" />
         <Button onClick={detect} className="whitespace-nowrap" disabled={loading || !url.trim()}>{loading ? 'Detecting...' : 'Detect'}</Button>
       </div>
 
@@ -66,9 +66,9 @@ export default function PlatformDetector({ selectedPlatform, setSelectedPlatform
       )}
 
       <div>
-        <Label>Or select manually</Label>
-        <Select value={selectedPlatform ?? ''} onValueChange={(v) => setSelectedPlatform(v || null)}>
-          <SelectTrigger className="bg-black text-white border-white/20"><SelectValue placeholder="Select platform" /></SelectTrigger>
+        <Label htmlFor="platformSelect">Or select manually</Label>
+        <Select name="platformSelect" value={selectedPlatform ?? ''} onValueChange={(v) => setSelectedPlatform(v || null)}>
+          <SelectTrigger id="platformSelect" className="bg-black text-white border-white/20"><SelectValue placeholder="Select platform" /></SelectTrigger>
           <SelectContent className="bg-black text-white">
             <SelectItem value="WordPress">WordPress</SelectItem>
             <SelectItem value="Shopify">Shopify</SelectItem>

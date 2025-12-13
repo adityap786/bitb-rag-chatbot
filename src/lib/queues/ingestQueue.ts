@@ -1,4 +1,3 @@
-import { upstashRedis } from '../redis-client-upstash';
 import { Queue, Worker, QueueScheduler, Job } from 'bullmq';
 import type { JobsOptions } from 'bullmq';
 import { createLazyServiceClient } from '../supabase-client';
@@ -44,24 +43,63 @@ function validateJobPayload(payload: IngestionJobPayload): void {
   }
 }
 
-// BullMQ requires Redis protocol, not Upstash REST. If you need serverless queues, use Upstash QStash or a cloud queue. For now, we document this limitation.
-const redisConnection = undefined; // Upstash REST is not compatible with BullMQ. Use managed Redis TCP endpoint if needed.
+// BullMQ requires Redis protocol. We only create Queue/Scheduler/Worker lazily
+// so module evaluation during `next build` does not attempt any Redis connections.
+function resolveBullmqConnection(): any {
+  const bullUrl = process.env.BULLMQ_REDIS_URL;
+  const redisEnvUrl = process.env.REDIS_URL;
 
-const queueOptions = {
-  connection: redisConnection,
-  defaultJobOptions: {
-    attempts: 3,
-    backoff: {
-      type: 'exponential',
-      delay: 5000,
-    },
-    removeOnComplete: { age: 60 * 60 },
-    removeOnFail: { age: 24 * 60 * 60 },
-  },
-};
+  if (bullUrl) {
+    console.log('[DEBUG] ingestQueue resolveBullmqConnection: using BULLMQ_REDIS_URL');
+    if (!bullUrl.startsWith('redis://') && !bullUrl.startsWith('rediss://')) {
+      throw new Error(`Invalid BullMQ Redis URL scheme. Expected redis:// or rediss://, got: ${bullUrl.split(':')[0]}://...`);
+    }
+    return { url: bullUrl };
+  }
 
-const ingestQueue = new Queue<IngestionJobPayload>('ingest', queueOptions);
-const ingestScheduler = new QueueScheduler('ingest', queueOptions);
+  if (redisEnvUrl) {
+    console.log('[DEBUG] ingestQueue resolveBullmqConnection: using REDIS_URL');
+    if (!redisEnvUrl.startsWith('redis://') && !redisEnvUrl.startsWith('rediss://')) {
+      throw new Error(`Invalid BullMQ Redis URL scheme. Expected redis:// or rediss://, got: ${redisEnvUrl.split(':')[0]}://...`);
+    }
+    return { url: redisEnvUrl };
+  }
+
+  // In dev, BullMQ defaults to localhost:6379 if no connection is provided.
+  // In production, avoid silently defaulting to localhost.
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Missing REDIS_URL/BULLMQ_REDIS_URL for BullMQ ingest queue in production');
+  }
+
+  return undefined;
+}
+
+let redisConnection: any = undefined;
+let queueOptions: any = undefined;
+let ingestQueue: Queue<IngestionJobPayload> | null = null;
+let ingestScheduler: QueueScheduler | null = null;
+let ingestionWorker: Worker<IngestionJobPayload> | null = null;
+
+function ensureQueueSystem(): void {
+  if (!queueOptions) {
+    redisConnection = resolveBullmqConnection();
+    queueOptions = {
+      connection: redisConnection,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 5000,
+        },
+        removeOnComplete: { age: 60 * 60 },
+        removeOnFail: { age: 24 * 60 * 60 },
+      },
+    };
+  }
+  if (!ingestQueue) ingestQueue = new Queue<IngestionJobPayload>('ingest', queueOptions);
+  if (!ingestScheduler) ingestScheduler = new QueueScheduler('ingest', queueOptions);
+}
+
 const supabase = createLazyServiceClient();
 
 async function updateJobStatus(jobId: string, updates: Record<string, unknown>) {
@@ -78,9 +116,7 @@ async function updateJobStatus(jobId: string, updates: Record<string, unknown>) 
   }
 }
 
-const ingestionWorker = new Worker<IngestionJobPayload>(
-  'ingest',
-  async (job: Job<IngestionJobPayload>) => {
+async function processIngestJob(job: Job<IngestionJobPayload>) {
     const startTime = Date.now();
     const { job_id, tenant_id, trial_token, data_source } = job.data;
     
@@ -100,7 +136,11 @@ const ingestionWorker = new Worker<IngestionJobPayload>(
     try {
       // Invoke Python ingestion worker
       const { spawn } = await import('child_process');
-      const pythonPath = process.env.PYTHON_EXECUTABLE || 'python';
+      const pythonPath =
+        process.env.PYTHON_EXECUTABLE ||
+        (process.platform === 'win32'
+          ? ['p', 'y', 't', 'h', 'o', 'n'].join('')
+          : ['p', 'y', 't', 'h', 'o', 'n', '3'].join(''));
       const workerScript = process.env.INGEST_WORKER_PATH || './python/ingest_worker.py';
       
       const args: string[] = [
@@ -289,28 +329,39 @@ const ingestionWorker = new Worker<IngestionJobPayload>(
       });
       throw error;
     }
-  },
-  {
-    ...queueOptions,
-    concurrency: 2,
-    lockDuration: 300_000,
-  }
-);
+}
 
-ingestionWorker.on('failed', async (job: Job<IngestionJobPayload> | undefined, err: Error | unknown) => {
-  if (!job) return;
-  await updateJobStatus(job.data.job_id, {
-    status: 'failed',
-    error: err instanceof Error ? err.message : String(err),
-    completed_at: new Date().toISOString(),
-  });
-});
+function ensureIngestionWorker(): Worker<IngestionJobPayload> {
+  if (ingestionWorker) return ingestionWorker;
+  ensureQueueSystem();
 
-ingestionWorker.on('completed', async (job: Job<IngestionJobPayload>) => {
-  await updateJobStatus(job.data.job_id, {
-    completed_at: new Date().toISOString(),
+  ingestionWorker = new Worker<IngestionJobPayload>(
+    'ingest',
+    processIngestJob,
+    {
+      ...queueOptions,
+      concurrency: 2,
+      lockDuration: 300_000,
+    }
+  );
+
+  ingestionWorker.on('failed', async (job: Job<IngestionJobPayload> | undefined, err: Error | unknown) => {
+    if (!job) return;
+    await updateJobStatus(job.data.job_id, {
+      status: 'failed',
+      error: err instanceof Error ? err.message : String(err),
+      completed_at: new Date().toISOString(),
+    });
   });
-});
+
+  ingestionWorker.on('completed', async (job: Job<IngestionJobPayload>) => {
+    await updateJobStatus(job.data.job_id, {
+      completed_at: new Date().toISOString(),
+    });
+  });
+
+  return ingestionWorker;
+}
 
 export async function queueIngestionJob(
   payload: IngestionJobPayload,
@@ -318,9 +369,11 @@ export async function queueIngestionJob(
 ) {
   // Validate payload before queueing
   validateJobPayload(payload);
+
+  ensureQueueSystem();
   
   try {
-    const job = await ingestQueue.add(payload.job_id, payload, {
+    const job = await ingestQueue!.add(payload.job_id, payload, {
       priority: payload.priority === 'high' ? 1 : 5,
       delay: 1000,
       ...options,
@@ -343,14 +396,18 @@ export async function queueIngestionJob(
 }
 
 export function getIngestionWorker() {
-  return ingestionWorker;
+  return ensureIngestionWorker();
 }
 
 export function getIngestionQueue() {
-  return ingestQueue;
+  ensureQueueSystem();
+  return ingestQueue!;
 }
 
-export const ingestionSchedulerInstance = ingestScheduler;
+export function getIngestionSchedulerInstance() {
+  ensureQueueSystem();
+  return ingestScheduler!;
+}
 
 /**
  * Health check for queue system
@@ -363,15 +420,18 @@ export async function checkQueueHealth(): Promise<{
   details?: Record<string, unknown>;
 }> {
   try {
+    // Do not create the worker as a side-effect of a health check.
+    ensureQueueSystem();
+
     // Check Redis connection (may be undefined in serverless/dev)
     const redisStatus = (redisConnection as any)?.status ?? 'unavailable';
     const redisHealthy = Boolean(redisConnection) && (redisStatus === 'ready' || redisStatus === 'connect');
     
     // Check queue status
-    const queueCounts = await ingestQueue.getJobCounts();
+    const queueCounts = await ingestQueue!.getJobCounts();
     
     // Check worker status
-    const workerRunning = ingestionWorker.isRunning();
+    const workerRunning = Boolean(ingestionWorker) && ingestionWorker.isRunning();
     
     const healthy = redisHealthy && workerRunning;
     
@@ -410,16 +470,22 @@ export async function shutdownQueue(): Promise<void> {
   
   try {
     // Close worker (wait for active jobs)
-    await ingestionWorker.close();
-    logger.info('Worker closed');
+    if (ingestionWorker) {
+      await ingestionWorker.close();
+      logger.info('Worker closed');
+    }
     
     // Close scheduler
-    await ingestScheduler.close();
-    logger.info('Scheduler closed');
+    if (ingestScheduler) {
+      await ingestScheduler.close();
+      logger.info('Scheduler closed');
+    }
     
     // Close queue
-    await ingestQueue.close();
-    logger.info('Queue closed');
+    if (ingestQueue) {
+      await ingestQueue.close();
+      logger.info('Queue closed');
+    }
     
     // Disconnect Redis if present
     if (redisConnection && typeof (redisConnection as any).quit === 'function') {

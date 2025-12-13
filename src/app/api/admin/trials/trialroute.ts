@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
 
     // Build query
     let query = supabase
-      .from('trial_tenants')
+      .from('tenants')
       .select(`
         *,
         knowledge_base(count),
@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
 
     // Calculate stats (efficient query)
     const { data: allTrials, error: statsError } = await supabase
-      .from('trial_tenants')
+      .from('tenants')
       .select('status');
 
     if (statsError) {

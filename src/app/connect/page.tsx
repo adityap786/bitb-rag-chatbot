@@ -177,9 +177,10 @@ export default function ConnectPage() {
 						className="mt-10 space-y-6 rounded-3xl border border-white/10 bg-white/5 p-8 shadow-2xl backdrop-blur-xl"
 					>
 						<div className="grid gap-6 md:grid-cols-2">
-							<label className="space-y-2 text-sm text-white/60">
+							<label htmlFor="contactName" className="space-y-2 text-sm text-white/60">
 								<span className="text-white">Full Name *</span>
 								<input
+									id="contactName"
 									type="text"
 									name="name"
 									placeholder="Your Name"
@@ -187,9 +188,10 @@ export default function ConnectPage() {
 									className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition focus:border-white/40"
 								/>
 							</label>
-							<label className="space-y-2 text-sm text-white/60">
+							<label htmlFor="contactEmail" className="space-y-2 text-sm text-white/60">
 								<span className="text-white">Email *</span>
 								<input
+									id="contactEmail"
 									type="email"
 									name="email"
 									placeholder="you@company.com"
@@ -199,18 +201,20 @@ export default function ConnectPage() {
 							</label>
 						</div>
 						<div className="grid gap-6 md:grid-cols-2">
-							<label className="space-y-2 text-sm text-white/60">
+							<label htmlFor="contactCompany" className="space-y-2 text-sm text-white/60">
 								<span className="text-white">Company</span>
 								<input
+									id="contactCompany"
 									type="text"
 									name="company"
 									placeholder="Company Name (optional)"
 									className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition focus:border-white/40"
 								/>
 							</label>
-							<label className="space-y-2 text-sm text-white/60">
+							<label htmlFor="contactPhone" className="space-y-2 text-sm text-white/60">
 								<span className="text-white">Phone *</span>
 								<input
+									id="contactPhone"
 									type="tel"
 									name="phone"
 									placeholder="+91 98765 43210"
@@ -227,9 +231,10 @@ export default function ConnectPage() {
 							</label>
 						</div>
 						<div className="grid gap-6 md:grid-cols-2">
-							<label className="space-y-2 text-sm text-white/60">
+							<label htmlFor="contactInquiry" className="space-y-2 text-sm text-white/60">
 								<span className="text-white">Inquiry Type *</span>
 								<select
+									id="contactInquiry"
 									name="inquiry"
 									required
 									value={inquiryType}
@@ -245,9 +250,10 @@ export default function ConnectPage() {
 									<option value="other">Other</option>
 								</select>
 							</label>
-							<label className="space-y-2 text-sm text-white/60">
+							<label htmlFor="contactPlan" className="space-y-2 text-sm text-white/60">
 								<span className="text-white">Plan Interest</span>
 								<select
+									id="contactPlan"
 									name="plan"
 									value={planInterest}
 									onChange={(event) => setPlanInterest(event.target.value)}
@@ -263,9 +269,10 @@ export default function ConnectPage() {
 								</select>
 							</label>
 						</div>
-						<label className="space-y-2 text-sm text-white/60">
+						<label htmlFor="contactMessage" className="space-y-2 text-sm text-white/60">
 							<span className="text-white">Message *</span>
 							<textarea
+								id="contactMessage"
 								name="message"
 								rows={6}
 								placeholder="Tell us more..."
@@ -273,8 +280,9 @@ export default function ConnectPage() {
 								className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition focus:border-white/40"
 							/>
 						</label>
-						<label className="flex items-center gap-3 text-sm text-white/70">
+						<label htmlFor="contactNewsletter" className="flex items-center gap-3 text-sm text-white/70">
 							<input
+								id="contactNewsletter"
 								type="checkbox"
 								name="newsletter"
 								className="size-4 rounded border-white/30 bg-black/40"

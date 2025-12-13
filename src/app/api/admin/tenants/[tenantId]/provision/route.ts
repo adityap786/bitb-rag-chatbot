@@ -30,7 +30,7 @@ export async function POST(
     const data = ProvisionSchema.parse(body);
 
     const { data: tenant, error: fetchError } = await supabase
-      .from('trial_tenants')
+      .from('tenants')
       .select('features')
       .eq('tenant_id', tenantId)
       .single();
@@ -48,7 +48,7 @@ export async function POST(
     };
 
     const { error: updateError } = await supabase
-      .from('trial_tenants')
+      .from('tenants')
       .update({ features: updatedFeatures })
       .eq('tenant_id', tenantId);
 

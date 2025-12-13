@@ -294,9 +294,9 @@ export default function HomePage() {
       </section>
 
         {/* GSAP-powered Interactive Tenant Onboarding Wizard for 3-Day Trial */}
-        <div className="my-16">
+        <section id="trial" className="my-16 scroll-mt-24">
           <TrialOnboardingWizardGSAP />
-        </div>
+        </section>
 
         {/* Business Applications Section (Third Section) */}
         <section className="my-16">

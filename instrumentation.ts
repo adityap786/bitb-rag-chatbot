@@ -72,17 +72,17 @@ async function verifyDemoTenantHealth() {
     });
 
     const { data, error } = await client
-      .from('trial_tenants')
-      .select('tenant_id,status,trial_expires_at')
+      .from('tenants')
+      .select('tenant_id,status,expires_at')
       .eq('tenant_id', demoTenantId)
       .single();
 
     if (error || !data) {
-      console.warn('[Instrumentation] DEMO_TENANT_ID not found in trial_tenants; run scripts/seed-demo-tenant.ts', { demoTenantIdPreview: demoTenantId.slice(0, 10) });
+      console.warn('[Instrumentation] DEMO_TENANT_ID not found in tenants; run scripts/seed-demo-tenant.ts', { demoTenantIdPreview: demoTenantId.slice(0, 10) });
       return;
     }
 
-    const expires = data.trial_expires_at ? new Date(data.trial_expires_at) : null;
+    const expires = data.expires_at ? new Date(data.expires_at) : null;
     const expired = expires ? expires < new Date() : false;
     const active = data.status === 'active' || data.status === 'trial';
 

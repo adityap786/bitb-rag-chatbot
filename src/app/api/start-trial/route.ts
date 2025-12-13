@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
+import { generateJWT } from '@/lib/jwt';
 
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -48,7 +49,7 @@ export async function POST(request: any, context: { params: Promise<{}> }) {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Set tenant context for RLS
-    await supabase.rpc('set_tenant_context', { tenant_id });
+    await supabase.rpc('set_tenant_context', { p_tenant_id: tenant_id });
 
     // Insert trial record
     const { data: trialRecord, error: insertError } = await supabase
@@ -79,6 +80,35 @@ export async function POST(request: any, context: { params: Promise<{}> }) {
       );
     }
 
+    // Ensure tenant exists for onboarding APIs that are tenant-table-based
+    // and store setup_token for legacy trial_token validation.
+    try {
+      const tenantInsert = await supabase
+        .from('tenants')
+        .insert({
+          tenant_id,
+          email: admin_email,
+          name: display_name,
+          status: 'active',
+          plan: 'trial',
+          plan_type: 'service',
+          expires_at,
+          metadata: {
+            setup_token: trial_token,
+            created_via: 'start-trial',
+            site_origin,
+          },
+        });
+
+      if (tenantInsert.error) {
+        // Don't fail trial creation if tenant provisioning fails; many APIs will fail later,
+        // but trial creation should remain best-effort.
+        console.error('Tenant provisioning error:', tenantInsert.error);
+      }
+    } catch (err) {
+      console.error('Tenant provisioning exception:', err);
+    }
+
     // Start ingestion job by calling /api/ingest internally
     let job_id = 'job_' + randomBytes(8).toString('hex');
     try {
@@ -95,6 +125,9 @@ export async function POST(request: any, context: { params: Promise<{}> }) {
       console.error('Failed to start ingestion job automatically:', err);
     }
 
+    // Generate JWT access token for API auth
+    const access_token = generateJWT(tenant_id, trial_token);
+
     // Generate embed code
     const widgetUrl = process.env.NEXT_PUBLIC_WIDGET_URL || 'https://bitb.ltd';
     const embed_code = `<script src="${widgetUrl}/bitb-widget.js" data-tenant-id="${tenant_id}" data-trial-token="${trial_token}" data-theme="${theme?.theme || 'auto'}"></script>`;
@@ -103,6 +136,7 @@ export async function POST(request: any, context: { params: Promise<{}> }) {
       success: true,
       tenant_id,
       trial_token,
+      access_token,
       expires_at,
       embed_code,
       ingestion_job_id: job_id,

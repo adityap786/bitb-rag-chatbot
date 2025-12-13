@@ -5,11 +5,14 @@ export interface TrialTenant {
   business_name: string | null;
   business_type: 'service' | 'ecommerce' | 'saas' | 'other';
   created_at: string;
-  trial_expires_at: string;
-  status: 'active' | 'expired' | 'upgraded' | 'cancelled';
-  plan_upgraded_to: string | null;
-  setup_token: string | null;
-  rag_status: 'pending' | 'processing' | 'ready' | 'failed';
+  expires_at: string;
+  // Legacy fields kept for backward compatibility with older responses
+  trial_expires_at?: string;
+  status: 'pending' | 'processing' | 'ready' | 'failed' | 'active' | 'expired' | 'upgraded' | 'cancelled';
+  plan: string | null;
+  plan_upgraded_to?: string | null;
+  setup_token?: string | null;
+  rag_status?: 'pending' | 'processing' | 'ready' | 'failed';
 }
 
 export interface TrialStartRequest {

@@ -53,6 +53,8 @@ const STEPS = [
 ];
 
 export default function TrialOnboardingWizard() {
+  const STORAGE_KEY = 'trial_onboarding_session_v1';
+
   const [state, setState] = useState<TrialState>({
     step: 1,
     tenantId: null,
@@ -95,6 +97,114 @@ export default function TrialOnboardingWizard() {
   const [ingestionStatus, setIngestionStatus] = useState<string | null>(null);
   const [trialExpired, setTrialExpired] = useState(false);
   const [trialExpiryMessage, setTrialExpiryMessage] = useState<string | null>(null);
+
+  // Rehydrate onboarding state after reload (session-scoped).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.sessionStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed?.state && typeof parsed.state === 'object') {
+        setState((prev) => ({ ...prev, ...parsed.state }));
+      }
+      if (typeof parsed?.kbMethod === 'string') setKbMethod(parsed.kbMethod);
+      if (typeof parsed?.companyInfo === 'string') setCompanyInfo(parsed.companyInfo);
+      if (typeof parsed?.platform === 'string') setPlatform(parsed.platform);
+      if (Array.isArray(parsed?.knowledgeBaseSources)) setKnowledgeBaseSources(parsed.knowledgeBaseSources);
+      if (typeof parsed?.framework === 'string') setFramework(parsed.framework);
+      if (typeof parsed?.hosting === 'string') setHosting(parsed.hosting);
+      if (typeof parsed?.logoUrl === 'string') setLogoUrl(parsed.logoUrl);
+
+      if (typeof parsed?.ingestionJobId === 'string' || parsed?.ingestionJobId === null) {
+        setIngestionJobId(parsed.ingestionJobId);
+      }
+      if (typeof parsed?.ingestionProgress === 'number') setIngestionProgress(parsed.ingestionProgress);
+      if (typeof parsed?.ingestionStatus === 'string' || parsed?.ingestionStatus === null) {
+        setIngestionStatus(parsed.ingestionStatus);
+      }
+      if (typeof parsed?.trialExpired === 'boolean') setTrialExpired(parsed.trialExpired);
+      if (typeof parsed?.trialExpiryMessage === 'string' || parsed?.trialExpiryMessage === null) {
+        setTrialExpiryMessage(parsed.trialExpiryMessage);
+      }
+    } catch {
+      // Ignore malformed session data
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist onboarding state (session-scoped) so refresh continues streaming loaders.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const payload = {
+        state,
+        kbMethod,
+        companyInfo,
+        platform,
+        knowledgeBaseSources,
+        framework,
+        hosting,
+        logoUrl,
+        ingestionJobId,
+        ingestionProgress,
+        ingestionStatus,
+        trialExpired,
+        trialExpiryMessage,
+      };
+      window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+      // Ignore storage quota/unavailable
+    }
+  }, [
+    state,
+    kbMethod,
+    companyInfo,
+    platform,
+    knowledgeBaseSources,
+    framework,
+    hosting,
+    logoUrl,
+    ingestionJobId,
+    ingestionProgress,
+    ingestionStatus,
+    trialExpired,
+    trialExpiryMessage,
+  ]);
+
+  // If we're mid-flow and processing but missing a job id (or after reload), recover last job id.
+  useEffect(() => {
+    if (!state.tenantId || !state.setupToken) return;
+    if (state.step < 2) return;
+    if (ingestionJobId) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/tenants/${state.tenantId}/pipeline-ready`, {
+          headers: { Authorization: `Bearer ${state.setupToken}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+
+        const lastJobId = data?.lastIngestion?.jobId;
+        const lastJobStatus = data?.lastIngestion?.status;
+        const ragStatus = data?.ragStatus;
+
+        if (!data?.ready && lastJobId && (ragStatus === 'processing' || lastJobStatus === 'processing' || lastJobStatus === 'queued')) {
+          setIngestionJobId(lastJobId);
+          setIngestionStatus('processing');
+        }
+      } catch {
+        // Ignore
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [state.tenantId, state.setupToken, state.step, ingestionJobId]);
 
   // Website URL platform detection function
   const detectPlatform = async () => {
@@ -290,6 +400,10 @@ export default function TrialOnboardingWizard() {
         setIngestionStatus('processing');
         setIngestionProgress(0);
       } else if (res.status === 409) {
+        if (data?.runId) {
+          setIngestionJobId(data.runId);
+          setIngestionProgress(0);
+        }
         setIngestionStatus('processing');
       } else if (data?.error) {
         setError(data.error);
@@ -417,6 +531,14 @@ export default function TrialOnboardingWizard() {
         data = null;
       }
 
+      if (data?.status === 'processing') {
+        if (data?.jobId) {
+          setIngestionJobId(data.jobId);
+        }
+        setIngestionStatus('processing');
+        return;
+      }
+
       if (response.status === 401 || response.status === 403) {
         const message = data?.error || 'Session expired while generating the widget.';
         setTrialExpired(true);
@@ -428,11 +550,6 @@ export default function TrialOnboardingWizard() {
       }
 
       if (!response.ok) {
-        if (data?.status === 'processing') {
-          setIngestionJobId(data.jobId);
-          setIngestionStatus('processing');
-          return;
-        }
         throw new Error(data?.error || 'Failed to generate widget');
       }
 
@@ -602,6 +719,7 @@ export default function TrialOnboardingWizard() {
                 <Label htmlFor="email">Email Address</Label>
                 <Input
                   id="email"
+                  name="email"
                   type="email"
                   value={state.email}
                   onChange={(e) => setState(prev => ({ ...prev, email: e.target.value }))}
@@ -614,6 +732,7 @@ export default function TrialOnboardingWizard() {
                 <Label htmlFor="businessName">Business Name</Label>
                 <Input
                   id="businessName"
+                  name="businessName"
                   value={state.businessName}
                   onChange={(e) => setState(prev => ({ ...prev, businessName: e.target.value }))}
                   placeholder="Acme Inc."
@@ -624,10 +743,11 @@ export default function TrialOnboardingWizard() {
               <div>
                 <Label htmlFor="businessType">Business Type</Label>
                 <Select
+                  name="businessType"
                   value={state.businessType}
                   onValueChange={(value: BusinessType) => setState(prev => ({ ...prev, businessType: value }))}
                 >
-                  <SelectTrigger id="businessType">
+                  <SelectTrigger id="businessType" name="businessType">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -645,6 +765,7 @@ export default function TrialOnboardingWizard() {
                 <div className="flex gap-2">
                   <Input
                     id="websiteUrl"
+                    name="websiteUrl"
                     type="url"
                     value={websiteUrl}
                     onChange={(e) => {
@@ -774,8 +895,10 @@ export default function TrialOnboardingWizard() {
                   <Label>Knowledge Base Sources</Label>
                   <div className="grid grid-cols-2 gap-2 mt-2 text-sm text-gray-200">
                     {['docs', 'urls', 'csv', 'google_drive', 'notion', 'zendesk', 'crm_export'].map((src) => (
-                      <label key={src} className="flex items-center gap-2">
+                      <label key={src} htmlFor={`kb-source-${src}`} className="flex items-center gap-2">
                         <input
+                          id={`kb-source-${src}`}
+                          name={`kb-source-${src}`}
                           type="checkbox"
                           checked={knowledgeBaseSources.includes(src)}
                           onChange={(e) => {
@@ -830,6 +953,7 @@ export default function TrialOnboardingWizard() {
                     <Label htmlFor="primaryColor">Primary Color</Label>
                     <Input
                       id="primaryColor"
+                      name="primaryColor"
                       type="color"
                       value={state.primaryColor}
                       onChange={(e) => setState(prev => ({ ...prev, primaryColor: e.target.value }))}
@@ -840,6 +964,7 @@ export default function TrialOnboardingWizard() {
                     <Label htmlFor="secondaryColor">Secondary Color</Label>
                     <Input
                       id="secondaryColor"
+                      name="secondaryColor"
                       type="color"
                       value={state.secondaryColor}
                       onChange={(e) => setState(prev => ({ ...prev, secondaryColor: e.target.value }))}
@@ -850,8 +975,8 @@ export default function TrialOnboardingWizard() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="framework">Framework</Label>
-                    <Select value={framework} onValueChange={setFramework as any}>
-                      <SelectTrigger id="framework">
+                    <Select name="framework" value={framework} onValueChange={setFramework as any}>
+                      <SelectTrigger id="framework" name="framework">
                         <SelectValue placeholder="Select framework" />
                       </SelectTrigger>
                       <SelectContent>
@@ -867,6 +992,7 @@ export default function TrialOnboardingWizard() {
                     <Label htmlFor="hosting">Hosting Provider</Label>
                     <Input
                       id="hosting"
+                      name="hosting"
                       value={hosting}
                       onChange={(e) => setHosting(e.target.value)}
                       placeholder="Vercel, AWS, Netlify, Render..."
@@ -877,10 +1003,11 @@ export default function TrialOnboardingWizard() {
                 <div>
                   <Label htmlFor="chatTone">Chat Tone</Label>
                   <Select
+                    name="chatTone"
                     value={state.chatTone}
                     onValueChange={(value: any) => setState(prev => ({ ...prev, chatTone: value }))}
                   >
-                    <SelectTrigger id="chatTone">
+                    <SelectTrigger id="chatTone" name="chatTone">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -895,6 +1022,7 @@ export default function TrialOnboardingWizard() {
                   <Label htmlFor="welcomeMessage">Welcome Message</Label>
                   <Textarea
                     id="welcomeMessage"
+                    name="welcomeMessage"
                     value={state.welcomeMessage}
                     onChange={(e) => setState(prev => ({ ...prev, welcomeMessage: e.target.value }))}
                     rows={2}
@@ -905,6 +1033,7 @@ export default function TrialOnboardingWizard() {
                   <Label htmlFor="logoUrl">Logo (optional)</Label>
                   <Input
                     id="logoUrl"
+                    name="logoUrl"
                     value={logoUrl}
                     onChange={(e) => setLogoUrl(e.target.value)}
                     placeholder="https://...logo.png"
@@ -914,7 +1043,7 @@ export default function TrialOnboardingWizard() {
                 <div>
                   <Label htmlFor="platform">Platform</Label>
                   <Select value={platform} onValueChange={setPlatform}>
-                    <SelectTrigger id="platform">
+                    <SelectTrigger id="platform" name="platform">
                       <SelectValue placeholder="Select platform" />
                     </SelectTrigger>
                     <SelectContent>

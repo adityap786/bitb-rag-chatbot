@@ -39,10 +39,12 @@ interface TrialTenant {
   business_name: string;
   business_type: string;
   created_at: string;
-  trial_expires_at: string;
-  status: 'active' | 'expired' | 'upgraded' | 'cancelled';
-  plan_upgraded_to: string | null;
-  rag_status: string;
+  expires_at: string;
+  trial_expires_at?: string;
+  status: 'pending' | 'processing' | 'ready' | 'failed' | 'active' | 'expired' | 'upgraded' | 'cancelled';
+  plan: string | null;
+  plan_upgraded_to?: string | null;
+  rag_status?: string;
   kb_count?: number;
   chat_count?: number;
   assigned_tools?: string[];
@@ -138,7 +140,10 @@ export default function TrialManagementPanel() {
     );
   };
 
+  const getExpiryDate = (trial: TrialTenant) => trial.expires_at || trial.trial_expires_at || '';
+
   const getDaysRemaining = (expiresAt: string) => {
+    if (!expiresAt) return 0;
     const days = Math.ceil((new Date(expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
     return days > 0 ? days : 0;
   };
@@ -151,7 +156,7 @@ export default function TrialManagementPanel() {
       t.business_type,
       t.status,
       new Date(t.created_at).toLocaleDateString(),
-      new Date(t.trial_expires_at).toLocaleDateString(),
+      getExpiryDate(t) ? new Date(getExpiryDate(t)).toLocaleDateString() : '',
       t.kb_count || 0,
       t.chat_count || 0,
     ]);
@@ -313,16 +318,16 @@ export default function TrialManagementPanel() {
                     <TableCell className="text-slate-300 capitalize">{trial.business_type}</TableCell>
                     <TableCell>{getStatusBadge(trial.status)}</TableCell>
                     <TableCell>
-                      <Badge variant={trial.rag_status === 'ready' ? 'default' : 'secondary'}>
-                        {trial.rag_status}
+                      <Badge variant={(trial.rag_status || trial.status) === 'ready' ? 'default' : 'secondary'}>
+                        {trial.rag_status || trial.status}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-slate-300">{trial.kb_count || 0}</TableCell>
                     <TableCell className="text-slate-300">{trial.chat_count || 0}</TableCell>
                     <TableCell className="text-slate-300">
-                      {trial.status === 'active' ? (
-                        <span className={getDaysRemaining(trial.trial_expires_at) <= 1 ? 'text-red-400 font-bold' : ''}>
-                          {getDaysRemaining(trial.trial_expires_at)}d
+                      {getExpiryDate(trial) ? (
+                        <span className={getDaysRemaining(getExpiryDate(trial)) <= 1 ? 'text-red-400 font-bold' : ''}>
+                          {getDaysRemaining(getExpiryDate(trial))}d
                         </span>
                       ) : (
                         '-'

@@ -11,6 +11,7 @@
  */
 
 import { shutdownQueue } from './ingestQueue';
+import { shutdownTenantPipelineQueue } from './tenantPipelineQueue';
 import { flushLangfuse } from '../observability/langfuse-client';
 import { logger } from '../observability/logger';
 
@@ -37,8 +38,11 @@ async function handleShutdown(signal: string) {
     logger.info('Langfuse traces flushed');
 
     // Shutdown queue system
-    await shutdownQueue();
-    logger.info('Queue system shut down');
+    await Promise.allSettled([
+      shutdownQueue(),
+      shutdownTenantPipelineQueue(),
+    ]);
+    logger.info('Queue systems shut down');
 
     clearTimeout(forceShutdownTimeout);
     logger.info('Graceful shutdown complete');

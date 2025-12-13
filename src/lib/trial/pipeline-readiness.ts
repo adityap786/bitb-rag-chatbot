@@ -8,13 +8,21 @@ export type PipelineReadinessInput = {
 /**
  * Decide whether a tenant's RAG pipeline is ready.
  * Ready if:
- * - rag_status already marked active/ready, OR
- * - latest job completed AND meets vector threshold, OR
- * - vectors meet threshold even if status metadata lags.
+ * - status already marked ready, OR
+ * - meets the vector threshold (even if an ingestion job is still running).
  */
 export function isPipelineReady({ ragStatus, lastJobStatus, vectorCount, minVectors }: PipelineReadinessInput) {
-  if (ragStatus === 'ready' || ragStatus === 'active') return true;
-  if (vectorCount >= Math.max(minVectors, 0)) return true;
-  if (lastJobStatus === 'completed') return true;
+  const threshold = Math.max(minVectors, 0);
+
+  // Explicit "ready" flags override everything.
+  if (ragStatus === 'ready') return true;
+
+  // If threshold is 0, treat as always-ready.
+  if (threshold === 0) return true;
+
+  // Primary gating: if we have enough vectors, RAG can serve queries.
+  if (vectorCount >= threshold) return true;
+
+  // Otherwise not ready.
   return false;
 }

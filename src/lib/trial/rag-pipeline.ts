@@ -8,6 +8,7 @@ import { createLazyServiceClient, setTenantContext } from '../supabase-client';
 import { generateEmbeddings } from './embeddings';
 import { recordStepComplete, recordStepFailure, recordStepStart } from './ingestion-steps';
 import { metrics } from '../telemetry';
+import { EMBEDDING_CONFIG } from '../embeddings/config';
 
 const supabase = createLazyServiceClient();
 
@@ -81,7 +82,8 @@ export async function fetchKnowledgeBase(tenantId: string) {
 
   const { data, error } = await supabase
     .from('knowledge_base')
-    .select('*')
+    // Only select fields actually used in the pipeline to reduce payload.
+    .select('kb_id, raw_text, metadata, source_type')
     .eq('tenant_id', tenantId);
 
   if (error) {
@@ -100,18 +102,10 @@ export async function updateTenantStatus(
 ): Promise<void> {
   validateTenantId(tenantId);
 
-  const { error } = await supabase
-    .from('trial_tenants')
-    .update({ rag_status: status })
-    .eq('tenant_id', tenantId);
-
-  if (error) {
-    TrialLogger.warn('Failed to update RAG status', {
-      tenantId,
-      status,
-      error: error.message,
-    });
-  }
+  // Tenant lifecycle status is a constrained enum (pending/provisioning/active/...).
+  // RAG pipeline readiness is derived from ingestion_jobs + vector counts.
+  // Keep this as a no-op to avoid invalid writes (and schema drift between environments).
+  void status;
 }
 
 /**
@@ -300,8 +294,7 @@ export async function buildRAGPipeline(
   };
 
   // Progressive readiness: enable Playground after MIN vectors
-  const MIN_PROGRESSIVE_VECTORS = Number(process.env.MIN_PIPELINE_VECTORS ?? '10');
-  let progressiveReadyEmitted = false;
+  // Readiness is derived by /api/tenants/:tenantId/pipeline-ready.
 
   const startStep = async (stepKey: IngestionStepKey, message?: string, dynamicEtaMs?: number) => {
     if (!jobId) return;
@@ -387,52 +380,61 @@ export async function buildRAGPipeline(
     
     // Calculate embedding ETA: ~50ms per chunk with batching
     const embeddingEta = Math.max(BASE_ETAS.embedding, chunks.length * 50);
-    await startStep('embedding', 'Generating embeddings', embeddingEta);
+    await startStep('embedding', 'Generating embeddings (progressive)', embeddingEta);
 
     if (jobId) {
       await supabase.from('ingestion_jobs').update({ progress: 40, chunks_created: chunks.length }).eq('job_id', jobId);
     }
 
-    // Generate embeddings
-    const chunkTexts = chunks.map((c: EmbeddingChunk) => c.text);
+    // Progressive embed + store to reduce time-to-first-vector (improves onboarding readiness latency)
+    // Use a group size that aligns with the embedding service batch/parallel settings, but keep inserts bounded.
+    const maxGroupSize = Math.max(1, EMBEDDING_CONFIG.BATCH_SIZE * EMBEDDING_CONFIG.MAX_PARALLEL);
+    const groupSize = Math.min(512, maxGroupSize);
+    const totalChunks = chunks.length;
+    let storedVectors = 0;
+
+    // Start storing step early because we insert vectors as we generate them.
+    const storingEta = Math.max(BASE_ETAS.storing, totalChunks * 5);
+    await startStep('storing', 'Storing vectors (progressive)', storingEta);
+
     const embedStart = Date.now();
-    const embeddings = await generateEmbeddings(chunkTexts);
-    metrics.timing('rag.embedding.duration', Date.now() - embedStart, { tenantId });
-
-    await completeStep('embedding', `${embeddings.length} embeddings generated`);
-    
-    // Calculate storing ETA: ~5ms per embedding
-    const storingEta = Math.max(BASE_ETAS.storing, embeddings.length * 5);
-    await startStep('storing', 'Storing vectors', storingEta);
-
-    if (jobId) {
-      await supabase.from('ingestion_jobs').update({ progress: 80, embeddings_count: embeddings.length }).eq('job_id', jobId);
-    }
-
-    // Insert embeddings
     const storeStart = Date.now();
-    await insertEmbeddings(tenantId, chunks, embeddings);
-    metrics.timing('rag.storing.duration', Date.now() - storeStart, { tenantId });
-    metrics.counter('rag.vectors.stored', embeddings.length, { tenantId });
 
-    // Progressive readiness: enable Playground early once we have enough vectors
-    if (!progressiveReadyEmitted && embeddings.length >= MIN_PROGRESSIVE_VECTORS) {
-      await updateTenantStatus(tenantId, 'ready');
-      progressiveReadyEmitted = true;
-      TrialLogger.info('Progressive readiness enabled', { tenantId, vectorCount: embeddings.length });
+    for (let offset = 0; offset < totalChunks; offset += groupSize) {
+      const slice = chunks.slice(offset, offset + groupSize);
+      const sliceTexts = slice.map((c) => c.text);
+
+      const sliceEmbeddings = (await generateEmbeddings(sliceTexts)) as number[][];
+      await insertEmbeddings(tenantId, slice, sliceEmbeddings);
+
+      storedVectors += sliceEmbeddings.length;
+
+      if (jobId) {
+        const progress = 40 + Math.min(40, Math.floor((storedVectors / totalChunks) * 40));
+        await supabase
+          .from('ingestion_jobs')
+          .update({ progress, embeddings_count: storedVectors })
+          .eq('job_id', jobId);
+      }
     }
 
+    metrics.timing('rag.embedding.duration', Date.now() - embedStart, { tenantId });
+    metrics.timing('rag.storing.duration', Date.now() - storeStart, { tenantId });
+    metrics.counter('rag.vectors.stored', storedVectors, { tenantId });
+
+    await completeStep('embedding', `${storedVectors} embeddings generated`);
     await completeStep('storing', 'Vectors stored');
+
+    // Progressive readiness is derived by /api/tenants/:tenantId/pipeline-ready based on vector counts.
+
     await startStep('done', 'Finalizing pipeline');
 
-    // Final status update (may already be 'ready' from progressive)
-    if (!progressiveReadyEmitted) {
-      await updateTenantStatus(tenantId, 'ready');
-    }
+    // Final readiness is derived by /api/tenants/:tenantId/pipeline-ready.
+    await updateTenantStatus(tenantId, 'ready');
     if (jobId) {
       await supabase
         .from('ingestion_jobs')
-        .update({ status: 'completed', progress: 100, embeddings_count: embeddings.length })
+        .update({ status: 'completed', progress: 100, embeddings_count: storedVectors })
         .eq('job_id', jobId);
     }
 

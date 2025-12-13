@@ -210,7 +210,8 @@ sudo service redis-server start
 Check `.env.local` has:
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `REDIS_URL` or `UPSTASH_REDIS_URL`
+- `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` (rate limiting)
+- `BULLMQ_REDIS_URL` (required for BullMQ queue workers in production)
 
 ### ❌ "Table does not exist"
 Apply the database migration (Step 1)

@@ -228,28 +228,14 @@ export class TrialWorkflowEngine {
     try {
       const { tenant_id, workflow_id } = context;
 
-      // Create trial tenant record (if not already exists)
-      const { data: trial, error } = await this.db
-        .from('trial_tenants')
+      // Ensure tenant exists in canonical tenants table
+      const { data: tenant, error } = await this.db
+        .from('tenants')
         .select('tenant_id')
         .eq('tenant_id', tenant_id)
         .single();
 
-      if (error && error.code !== 'PGRST116') throw error;
-
-      if (!trial) {
-        // Create new trial tenant
-        const { error: createError } = await this.db
-          .from('trial_tenants')
-          .insert({
-            tenant_id,
-            status: 'initializing',
-            trial_start_date: new Date().toISOString(),
-            trial_end_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
-          });
-
-        if (createError) throw createError;
-      }
+      if (error || !tenant) throw new NotFoundError('Tenant not found');
 
       // Generate setup token for next step
       const setupToken = this.generateSetupToken(tenant_id);
@@ -476,10 +462,9 @@ export class TrialWorkflowEngine {
 
       // Mark trial as ready/active
       const { error } = await this.db
-        .from('trial_tenants')
+        .from('tenants')
         .update({
-          status: 'active',
-          activated_at: new Date().toISOString(),
+          status: 'ready',
         })
         .eq('tenant_id', tenant_id);
 

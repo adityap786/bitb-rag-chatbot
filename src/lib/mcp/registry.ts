@@ -163,7 +163,7 @@ const updateSettingsSchema = {
 /**
  * Tool registry with metadata
  */
-export const MCP_TOOLS: Record<MCPToolName, MCPToolDefinition> = {
+export const MCP_TOOLS: Partial<Record<MCPToolName, MCPToolDefinition>> = {
   rag_query: {
     name: 'rag_query',
     description: 'Perform semantic search over knowledge base and return relevant documents',
@@ -218,14 +218,14 @@ export const MCP_TOOLS: Record<MCPToolName, MCPToolDefinition> = {
  * Get tool definition by name
  */
 export function getToolDefinition(toolName: string): MCPToolDefinition | null {
-  return MCP_TOOLS[toolName as MCPToolName] || null;
+  return (MCP_TOOLS[toolName as MCPToolName] as MCPToolDefinition | undefined) ?? null;
 }
 
 /**
  * Check if tool exists
  */
 export function isValidTool(toolName: string): toolName is MCPToolName {
-  return toolName in MCP_TOOLS;
+  return Boolean(MCP_TOOLS[toolName as MCPToolName]);
 }
 
 /**

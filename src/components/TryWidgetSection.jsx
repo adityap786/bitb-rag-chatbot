@@ -280,8 +280,10 @@ export default function TryWidgetSection() {
 
           {dataSource === 'url' && (
             <div>
-              <label className="mb-2 block text-sm font-medium text-white/80">Website URL</label>
+              <label htmlFor="siteUrl" className="mb-2 block text-sm font-medium text-white/80">Website URL</label>
               <input
+                id="siteUrl"
+                name="siteUrl"
                 type="url"
                 value={formData.siteUrl}
                 onChange={(e) => setFormData({ ...formData, siteUrl: e.target.value })}
@@ -307,6 +309,8 @@ export default function TryWidgetSection() {
               </div>
               <input
                 ref={fileInputRef}
+                id="fileUpload"
+                name="fileUpload"
                 type="file"
                 multiple
                 accept=".pdf,.docx,.txt,.html"
@@ -353,9 +357,11 @@ export default function TryWidgetSection() {
             {/* Left: Configuration */}
             <div className="space-y-4">
               <div>
-                <label className="mb-2 block text-sm font-medium text-white/80">Primary color</label>
+                <label htmlFor="primaryColor" className="mb-2 block text-sm font-medium text-white/80">Primary color</label>
                 <div className="flex items-center gap-3">
                   <input
+                    id="primaryColor"
+                    name="primaryColor"
                     type="color"
                     value={formData.primaryColor}
                     onChange={(e) => setFormData({ ...formData, primaryColor: e.target.value })}
@@ -363,18 +369,23 @@ export default function TryWidgetSection() {
                     disabled={isInputDisabled}
                   />
                   <input
+                    id="primaryColorText"
+                    name="primaryColorText"
                     type="text"
                     value={formData.primaryColor}
                     onChange={(e) => setFormData({ ...formData, primaryColor: e.target.value })}
                     className="flex-1 rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-sm text-white placeholder:text-white/30 focus:border-white/40 focus:outline-none font-mono"
                     disabled={isInputDisabled}
+                    aria-label="Primary color hex value"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-medium text-white/80">Chat name</label>
+                <label htmlFor="chatName" className="mb-2 block text-sm font-medium text-white/80">Chat name</label>
                 <input
+                  id="chatName"
+                  name="chatName"
                   type="text"
                   value={formData.chatName}
                   onChange={(e) => setFormData({ ...formData, chatName: e.target.value })}
@@ -431,10 +442,13 @@ export default function TryWidgetSection() {
                     <div className="p-3 bg-white border-t border-gray-200">
                       <div className="flex gap-2">
                         <input 
+                          id="previewInput"
+                          name="previewInput"
                           type="text" 
                           placeholder="Type your message..."
                           className="flex-1 px-3 py-2 border border-gray-300 rounded-xl text-sm focus:outline-none focus:border-gray-400"
                           disabled
+                          aria-label="Preview chat input (disabled)"
                         />
                         <button 
                           className="px-4 py-2 rounded-xl text-white font-medium text-sm transition"
@@ -475,8 +489,10 @@ export default function TryWidgetSection() {
           <h2 className="text-2xl font-semibold text-white">Admin details</h2>
 
           <div>
-            <label className="mb-2 block text-sm font-medium text-white/80">Admin email</label>
+            <label htmlFor="adminEmail" className="mb-2 block text-sm font-medium text-white/80">Admin email</label>
             <input
+              id="adminEmail"
+              name="adminEmail"
               type="email"
               value={formData.adminEmail}
               onChange={(e) => setFormData({ ...formData, adminEmail: e.target.value })}
@@ -488,13 +504,15 @@ export default function TryWidgetSection() {
 
           <div className="flex items-start gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
             <input
+              id="agreeToTerms"
+              name="agreeToTerms"
               type="checkbox"
               checked={formData.agreeToTerms}
               onChange={(e) => setFormData({ ...formData, agreeToTerms: e.target.checked })}
               className="mt-1 h-4 w-4 rounded border border-white/30 bg-black"
               disabled={isInputDisabled}
             />
-            <label className="text-sm text-white/80">
+            <label htmlFor="agreeToTerms" className="text-sm text-white/80">
               I agree to BiTB Terms of Service and understand trial data auto-deletes after 3 days.
             </label>
           </div>
@@ -604,7 +622,10 @@ export default function TryWidgetSection() {
                       {/* Chat Input */}
                       <div className="p-3 bg-white border-t border-gray-200">
                         <div className="flex gap-2">
+                          <label htmlFor="ragQueryInput" className="sr-only">Ask a question about your content</label>
                           <input 
+                            id="ragQueryInput"
+                            name="ragQuery"
                             type="text" 
                             placeholder="Ask a question..."
                             value={ragQuery}
@@ -742,7 +763,10 @@ export default function TryWidgetSection() {
       {step === 6 && (
         <motion.div key="step-6" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }} className="space-y-6">
           <h2 className="text-2xl font-semibold text-white">Advanced Testing</h2>
+          <label htmlFor="advancedRagQuery" className="sr-only">Ask a question</label>
           <input 
+            id="advancedRagQuery"
+            name="advancedRagQuery"
             type="text" 
             placeholder="Ask a question..." 
             value={ragQuery} 

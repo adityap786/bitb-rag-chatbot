@@ -64,7 +64,7 @@ export async function routeMCPRequest(
 
 
     // Validate tenant context (security check)
-    const tenantValidation = await validateTenantContext(request);
+    const tenantValidation = await validateTenantContext(request, body);
     if (tenantValidation) {
       return tenantValidation as NextResponse;
     }
@@ -84,7 +84,7 @@ export async function routeMCPRequest(
       const { EcomReACTAgent } = await import('../agents/ecomAgent');
       const agent = new EcomReACTAgent(mcpRequest.tenant_id, tenantType);
       // Use the user query from parameters if present
-      const userQuery = mcpRequest.parameters?.query || mcpRequest.tool;
+      const userQuery = (mcpRequest.parameters?.query as string | undefined) ?? mcpRequest.tool;
       const agentResult = await agent.run(userQuery);
       // Telemetry: log agent action
       await AuditLogger.logMCPToolInvocation(
@@ -93,7 +93,6 @@ export async function routeMCPRequest(
         {
           success: true,
           execution_time_ms: Date.now() - startTime,
-          agent_steps: agentResult.steps.length,
         }
       );
       return NextResponse.json({

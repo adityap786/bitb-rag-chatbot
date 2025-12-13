@@ -1,4 +1,4 @@
-import { ingestionQueue } from './ingestion-queue';
+import { getIngestionQueue } from './ingestion-queue';
 import { Job } from 'bullmq';
 
 /**
@@ -6,7 +6,7 @@ import { Job } from 'bullmq';
  * Returns job state, progress, result, and error if any.
  */
 export async function getIngestionJobStatus(job_id: string) {
-  const job = (await ingestionQueue.getJob(job_id)) || null;
+  const job = (await getIngestionQueue().getJob(job_id)) || null;
   if (!job) return { job_id, status: 'not_found' };
   const state = await job.getState();
   return {

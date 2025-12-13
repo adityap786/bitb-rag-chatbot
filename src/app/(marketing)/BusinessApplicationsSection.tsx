@@ -78,25 +78,25 @@ const cards = [
 ];
 
 export default function BusinessApplicationsSection() {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLElement>(null);
 
   // Individual card component with scroll-driven scale effect
   function ParallaxCard({ card, index }: { card: typeof cards[0], index: number }) {
-    const cardRef = useRef<HTMLDivElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
     const { scrollYProgress } = useScroll({
-      target: cardRef,
-      offset: ["start end", "start 0.15"],
+      target: containerRef,
+      offset: ["start end", "end start"],
     });
 
     const scale = useTransform(scrollYProgress, [0, 0.4, 0.7, 1], [0.85, 1.05, 1, 0.95]);
     const opacity = useTransform(scrollYProgress, [0, 0.2, 0.8, 1], [0.3, 1, 1, 1]);
 
     return (
-      <motion.div
-        ref={cardRef}
-        style={{ scale, opacity, zIndex: index + 1 }}
-        className="w-full max-w-5xl h-[calc(100vh-140px)] rounded-3xl border border-white/10 shadow-2xl p-4 md:p-8 flex flex-col justify-between sticky top-28 bg-black"
-      >
+      <div ref={containerRef} className="w-full relative flex justify-center h-[100vh]">
+        <motion.div
+          style={{ scale, opacity, zIndex: index + 1 }}
+          className="w-full max-w-5xl h-[calc(100vh-140px)] rounded-3xl border border-white/10 shadow-2xl p-4 md:p-8 flex flex-col justify-between sticky top-28 bg-black"
+        >
         {/* All cards use the same split layout now */}
         <div className="flex flex-col md:flex-row gap-6 md:gap-8 items-start">
           {/* Left: Copywriting */}
@@ -287,6 +287,7 @@ export default function BusinessApplicationsSection() {
           </div>
         </div>
       </motion.div>
+      </div>
     );
   }
 

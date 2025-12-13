@@ -95,6 +95,7 @@ export default function TenantConfigPanel() {
           </label>
           <select
             id="tenant-select"
+            name="tenant-select"
             value={selectedTenant}
             onChange={(e) => handleTenantChange(e.target.value)}
             className="mt-2 w-full rounded-lg border border-white/10 bg-slate-950/60 px-4 py-2 text-sm text-white transition focus:border-sky-400/40 focus:outline-none focus:ring-2 focus:ring-sky-400/20"

@@ -3,7 +3,7 @@ import { sign } from 'jsonwebtoken';
 import type { TrialStartRequest, TrialStartResponse } from '@/types/trial';
 import { validateEmail, validateBusinessName, validateBusinessType } from '@/lib/trial/validation';
 import { ValidationError, ConflictError, NotFoundError, InternalError } from '@/lib/trial/errors';
-import { checkRateLimit } from '@/lib/trial/auth';
+import { rateLimit, RATE_LIMITS } from '@/middleware/rate-limit';
 import TrialLogger from '@/lib/trial/logger';
 import { createLazyServiceClient } from '@/lib/supabase-client';
 
@@ -15,26 +15,17 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
   const startTime = Date.now();
   const requestId = crypto.randomUUID();
 
-  try {
-    // Rate limiting
-    const ipAddress = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown';
-    const rateLimitKey = `trial_start_${ipAddress}`;
-    const rateLimit = checkRateLimit(rateLimitKey, 5, 60 * 1000); // 5 requests per minute
+  // Debug: Log environment check
+  console.log('[trial/start] Environment check:', {
+    hasSupabaseUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL || !!process.env.SUPABASE_URL,
+    hasServiceRoleKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+    hasJwtSecret: !!process.env.JWT_SECRET,
+  });
 
-    if (!rateLimit.allowed) {
-      TrialLogger.warn('Rate limit exceeded for trial start', {
-        requestId,
-        ipAddress,
-        retryAfter: rateLimit.retryAfter,
-      });
-      return NextResponse.json(
-        { error: 'Too many requests. Please try again later.' },
-        {
-          status: 429,
-          headers: { 'Retry-After': rateLimit.retryAfter.toString() },
-        }
-      );
-    }
+  try {
+    // Rate limiting (Redis-backed via shared middleware)
+    const ipRateLimitResponse = await rateLimit(req, RATE_LIMITS.trialStart);
+    if (ipRateLimitResponse) return ipRateLimitResponse;
 
     const body = await req.json();
 
@@ -45,38 +36,49 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
 
     // Check if email already exists with active trial
     const { data: existing, error: existingError } = await supabase
-      .from('trial_tenants')
+      .from('tenants')
       .select('tenant_id, status')
       .eq('email', body.email)
       .single();
 
     if (existingError && existingError.code !== 'PGRST116') {
       // PGRST116 means no row found, which is expected
-      throw new InternalError('Failed to check existing trial', new Error(existingError.message));
+      console.error('[trial/start] Supabase error checking existing trial:', {
+        code: existingError.code,
+        message: existingError.message,
+        details: existingError.details,
+        hint: existingError.hint,
+      });
+      throw new InternalError(`Failed to check existing trial: ${existingError.message}`, new Error(existingError.message));
     }
 
     if (existing && existing.status === 'active') {
       throw new ConflictError('An active trial already exists for this email');
     }
 
+    // Generate tenant_id in the correct format: tn_<32 hex chars>
+    const tenantId = `tn_${crypto.randomUUID().replace(/-/g, '')}`;
+
     // Create new trial tenant
     const trialExpiresAt = new Date();
     trialExpiresAt.setDate(trialExpiresAt.getDate() + 3);
 
     const { data: tenant, error: insertError } = await supabase
-      .from('trial_tenants')
+      .from('tenants')
       .insert({
+        tenant_id: tenantId,
         email: body.email,
-        business_name: body.businessName,
-        business_type: body.businessType,
-        trial_expires_at: trialExpiresAt.toISOString(),
+        name: body.businessName,
         status: 'active',
-        rag_status: 'pending',
+        plan: 'trial',
+        plan_type: body.businessType === 'ecommerce' ? 'ecommerce' : 'service',
+        expires_at: trialExpiresAt.toISOString(),
       })
       .select()
       .single();
 
     if (insertError || !tenant) {
+      console.error('[trial/start] Insert error:', insertError);
       throw new InternalError('Failed to create trial tenant', new Error(insertError?.message || 'Unknown'));
     }
 
@@ -100,10 +102,10 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
       { expiresIn: '24h', algorithm: 'HS256' }
     );
 
-    // Store setup token
+    // Store setup token in metadata (tenants table doesn't have setup_token column)
     const { error: updateError } = await supabase
-      .from('trial_tenants')
-      .update({ setup_token: setupToken })
+      .from('tenants')
+      .update({ metadata: { setup_token: setupToken } })
       .eq('tenant_id', tenant.tenant_id);
 
     if (updateError) {
@@ -116,7 +118,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
 
     const response: TrialStartResponse = {
       tenantId: tenant.tenant_id,
-      trialExpiresAt: tenant.trial_expires_at,
+      trialExpiresAt: tenant.expires_at,
       setupToken,
     };
 

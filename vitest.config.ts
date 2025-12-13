@@ -2,6 +2,8 @@ import { defineConfig } from 'vitest/config';
 import path from 'path';
 import tsconfigPaths from 'vite-tsconfig-paths';
 
+const COVERAGE_ENABLED = process.env.VITEST_COVERAGE === '1' || process.env.CI === 'true' || process.env.CI === '1';
+
 export default defineConfig({
   plugins: [tsconfigPaths()],
   test: {
@@ -31,7 +33,7 @@ export default defineConfig({
     maxConcurrency: 2, // Lower concurrency for stability on all systems
     coverage: {
       provider: 'v8',
-      enabled: true,
+      enabled: COVERAGE_ENABLED,
       reportsDirectory: './coverage',
       reporter: ['text', 'html', 'json'],
       thresholds: {

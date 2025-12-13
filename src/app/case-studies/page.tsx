@@ -1,6 +1,6 @@
 'use client';
 
-import { motion } from 'framer-motion';
+import { motion, easeInOut, easeOut } from 'framer-motion';
 import { ArrowUpRight, Activity, Building2, Scale, UtensilsCrossed, ShoppingBag, GraduationCap } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -93,7 +93,7 @@ const container = {
 
 const item = {
   hidden: { opacity: 0, y: 20 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeInOut" } }
+  show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: easeInOut } }
 };
 
 export default function CaseStudiesPage() {
@@ -106,7 +106,7 @@ export default function CaseStudiesPage() {
         <motion.section 
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, ease: "easeInOut" }}
+          transition={{ duration: 0.8, ease: easeInOut }}
           className="mb-32"
         >
           <h1 className="text-6xl md:text-8xl font-bold tracking-tighter mb-8 leading-[0.9]">
@@ -127,7 +127,7 @@ export default function CaseStudiesPage() {
               initial={{ opacity: 0, y: 40 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-10%" }}
-              transition={{ duration: 0.7, ease: "easeOut" }}
+              transition={{ duration: 0.7, ease: easeOut }}
               className={`flex flex-col ${index % 2 === 0 ? 'lg:flex-row' : 'lg:flex-row-reverse'} gap-12 lg:gap-24 items-center`}
             >
               {/* Image Side */}

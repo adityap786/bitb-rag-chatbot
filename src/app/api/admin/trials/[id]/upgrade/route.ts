@@ -37,8 +37,8 @@ export async function POST(
 
     // Check tenant exists
     const { data: tenant, error: fetchError } = await supabase
-      .from('trial_tenants')
-      .select('*')
+      .from('tenants')
+      .select('status, plan')
       .eq('tenant_id', tenantId)
       .single();
 
@@ -47,16 +47,16 @@ export async function POST(
     }
 
     // Verify not already upgraded
-    if (tenant.status === 'upgraded') {
+    if (tenant.status === 'upgraded' || tenant.plan !== 'trial') {
       throw new ValidationError('Trial is already upgraded to a paid plan');
     }
 
     // Update tenant to upgraded status
     const { error: updateError } = await supabase
-      .from('trial_tenants')
+      .from('tenants')
       .update({
-        status: 'upgraded',
-        plan_upgraded_to: body.plan,
+        status: 'active',
+        plan: body.plan,
       })
       .eq('tenant_id', tenantId);
 

@@ -488,7 +488,7 @@ export default function DocumentationPage() {
               </p>
               <div className="flex flex-wrap justify-center gap-4">
                 <a
-                  href="/trial"
+                  href="/#trial"
                   className="group inline-flex items-center gap-2 px-8 py-4 rounded-xl bg-white text-black font-semibold hover:bg-white/90 transition-all duration-300"
                 >
                   Start Free Trial

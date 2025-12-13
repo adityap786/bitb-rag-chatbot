@@ -98,18 +98,23 @@ async function generateEmbeddingBatch(texts: string[]): Promise<number[][]> {
     );
 
     if (!Array.isArray(response.data.embeddings)) {
-      throw new Error('Invalid response format');
+      throw new Error('Invalid embedding response format');
     }
 
     const duration = Date.now() - startTime;
-    metrics.timing('embedding.batch.duration', duration, {
-      batchSize: texts.length.toString(),
-    });
+    metrics.timing('embeddings.batch.duration', duration);
+    metrics.counter('embeddings.batch.success', 1);
     metrics.counter('embedding.vectors.generated', texts.length);
-
+    
     return response.data.embeddings;
   } catch (error: any) {
-    metrics.error('embedding.batch.error', error);
+    if (error.code === 'ECONNREFUSED' || error.code === 'ECONNRESET') {
+      throw new Error(
+        `Embedding service not running on ${EMBEDDING_CONFIG.SERVICE_URL}. ` +
+        `Please start it with: cd services/bge_embedding_service && python main.py`
+      );
+    }
+    metrics.counter('embedding.batch.error', 1);
     throw new ExternalServiceError('Embedding Service', error.message);
   }
 }

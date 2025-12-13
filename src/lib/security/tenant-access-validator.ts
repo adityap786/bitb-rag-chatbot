@@ -81,8 +81,8 @@ export async function validateTenantAccess(
     const client = createClient(supabaseUrl, supabaseKey);
 
     const { data, error } = await client
-      .from('trial_tenants')
-      .select('tenant_id, status, trial_expires_at')
+      .from('tenants')
+      .select('tenant_id, status, expires_at')
       .eq('tenant_id', tenant_id)
       .single();
 
@@ -95,7 +95,7 @@ export async function validateTenantAccess(
       );
     }
 
-    if (data.status !== 'active' && data.status !== 'trial') {
+    if (data.status !== 'active') {
       await logAccessViolation(fullContext, 'TENANT_INACTIVE');
       throw new TenantAccessViolationError(
         `SECURITY: Tenant status is ${data.status}`,
@@ -105,7 +105,7 @@ export async function validateTenantAccess(
     }
 
     // Check if trial expired
-    if (data.trial_expires_at && new Date(data.trial_expires_at) < new Date()) {
+    if (data.expires_at && new Date(data.expires_at) < new Date()) {
       await logAccessViolation(fullContext, 'TRIAL_EXPIRED');
       throw new TenantAccessViolationError(
         'SECURITY: Trial has expired',

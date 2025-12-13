@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createLazyServiceClient } from '@/lib/supabase-client';
 import { verifyBearerToken } from '@/lib/trial/auth';
 import { INGESTION_STEP_ORDER } from '@/types/ingestion';
+import { rateLimit, RATE_LIMITS } from '@/middleware/rate-limit';
 
 const supabase = createLazyServiceClient();
 export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest, context: { params: Promise<{ tenantId: string; runId: string }> }) {
   try {
+    const ipRateLimitResponse = await rateLimit(req, RATE_LIMITS.tenantIngestStatus);
+    if (ipRateLimitResponse) return ipRateLimitResponse;
+
     const token = verifyBearerToken(req);
     const { tenantId, runId } = await context.params;
 

@@ -17,7 +17,12 @@ process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'https://test.supabase.co
 process.env.NEXT_PUBLIC_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-key';
 process.env.GROQ_API_KEY = process.env.GROQ_API_KEY || 'test-key';
-process.env.REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+// Only set REDIS_URL when explicitly opted in.
+// Setting this by default makes code think Redis is configured and can
+// unintentionally activate BullMQ/Redis-backed flows during unit tests.
+if (process.env.TEST_USE_REDIS === '1') {
+	process.env.REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+}
 
 // Allow tests to opt-in to exercising Redis-backed code paths.
 // Some tests mock `ioredis` and expect the code to use Redis when REDIS_URL is present.

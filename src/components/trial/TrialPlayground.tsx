@@ -23,15 +23,75 @@ interface ChatMessage {
   feedback?: 'up' | 'down' | null;
 }
 
+type StoredChatMessage = Omit<ChatMessage, 'timestamp'> & { timestamp: string };
+
+function serializeMessages(messages: ChatMessage[]): StoredChatMessage[] {
+  return messages.map((m) => ({
+    ...m,
+    timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : new Date(m.timestamp).toISOString(),
+  }));
+}
+
+function deserializeMessages(messages: StoredChatMessage[]): ChatMessage[] {
+  return messages.map((m) => ({
+    ...m,
+    timestamp: new Date(m.timestamp),
+  }));
+}
+
+function normalizeHexColor(input?: string): string | null {
+  if (!input || typeof input !== 'string') return null;
+  const trimmed = input.trim();
+  const short = /^#([0-9a-f]{3})$/i;
+  const full = /^#([0-9a-f]{6})$/i;
+
+  const shortMatch = trimmed.match(short);
+  if (shortMatch) {
+    const [r, g, b] = shortMatch[1].split('');
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  const fullMatch = trimmed.match(full);
+  if (fullMatch) return `#${fullMatch[1]}`.toLowerCase();
+  return null;
+}
+
+function hexToRgba(input: string | null, alpha: number): string | null {
+  if (!input) return null;
+  const hex = normalizeHexColor(input);
+  if (!hex) return null;
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const a = Math.max(0, Math.min(1, alpha));
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
+
+function isLightHex(input: string | null): boolean {
+  const hex = normalizeHexColor(input || undefined);
+  if (!hex) return false;
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  // Relative luminance (simple)
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) > 160;
+}
+
 export default function TrialPlayground({
   formData,
   trialToken,
   tenantId,
 }: {
-  formData: { primaryColor: string; chatName: string };
+  formData: { primaryColor: string; secondaryColor?: string; chatName: string };
   trialToken: string;
   tenantId?: string;
 }) {
+  const primary = normalizeHexColor(formData.primaryColor) || '#6366f1';
+  const secondary = normalizeHexColor(formData.secondaryColor) || primary;
+  const primaryText = isLightHex(primary) ? 'black' : 'white';
+  const secondaryText = isLightHex(secondary) ? 'black' : 'white';
+  const secondaryBorder = hexToRgba(secondary, 0.35) || 'rgba(255,255,255,0.2)';
+  const primaryFillSoft = hexToRgba(primary, 0.18) || 'rgba(255,255,255,0.12)';
+
   const [inputValue, setInputValue] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -41,48 +101,127 @@ export default function TrialPlayground({
   const [avgLatency, setAvgLatency] = useState(0);
   const [pipelineReady, setPipelineReady] = useState<boolean | null>(null);
   const [readinessError, setReadinessError] = useState<string | null>(null);
+  const [serverHint, setServerHint] = useState<string | null>(null);
+  const [lastCorrelationId, setLastCorrelationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const readyTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const didHydrateRef = useRef(false);
+
+  // Rehydrate playground state after reload (session-scoped).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const effectiveTenantId = tenantId || process.env.NEXT_PUBLIC_DEMO_TENANT_ID;
+    if (!effectiveTenantId || !trialToken) return;
+    if (didHydrateRef.current) return;
+
+    didHydrateRef.current = true;
+    const storageKey = `trial_playground_session_v1:${effectiveTenantId}`;
+    try {
+      const raw = window.sessionStorage.getItem(storageKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed?.tenantId !== effectiveTenantId) return;
+
+      if (Array.isArray(parsed?.messages) && parsed.messages.length > 0) {
+        setMessages((prev) => (prev.length > 0 ? prev : deserializeMessages(parsed.messages)));
+      }
+      if (typeof parsed?.pipelineReady === 'boolean' || parsed?.pipelineReady === null) {
+        setPipelineReady(parsed.pipelineReady);
+      }
+      if (typeof parsed?.totalQueries === 'number') setTotalQueries(parsed.totalQueries);
+      if (typeof parsed?.avgLatency === 'number') setAvgLatency(parsed.avgLatency);
+      if (typeof parsed?.llmInfo === 'object') setLlmInfo(parsed.llmInfo);
+    } catch {
+      // Ignore malformed session data
+    }
+  }, [tenantId, trialToken]);
+
+  // Persist playground state (session-scoped) so refresh keeps chat history.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const effectiveTenantId = tenantId || process.env.NEXT_PUBLIC_DEMO_TENANT_ID;
+    if (!effectiveTenantId || !trialToken) return;
+
+    const storageKey = `trial_playground_session_v1:${effectiveTenantId}`;
+    try {
+      const payload = {
+        tenantId: effectiveTenantId,
+        messages: serializeMessages(messages),
+        pipelineReady,
+        totalQueries,
+        avgLatency,
+        llmInfo,
+      };
+      window.sessionStorage.setItem(storageKey, JSON.stringify(payload));
+    } catch {
+      // Ignore storage quota/unavailable
+    }
+  }, [tenantId, trialToken, messages, pipelineReady, totalQueries, avgLatency, llmInfo]);
 
   // Check pipeline readiness on mount and periodically
   useEffect(() => {
     const effectiveTenantId = tenantId || process.env.NEXT_PUBLIC_DEMO_TENANT_ID;
     if (!effectiveTenantId || !trialToken) return;
 
+    console.log('[TrialPlayground] Checking readiness for tenant:', effectiveTenantId);
+
     let cancelled = false;
     let retryCount = 0;
     const maxRetries = 20; // Stop after ~30 seconds
     
     const checkReadiness = async () => {
-      if (cancelled || retryCount >= maxRetries) return;
+      if (cancelled || retryCount >= maxRetries) {
+        if (retryCount >= maxRetries) {
+          console.error('[TrialPlayground] Max retries reached');
+          setReadinessError('Pipeline is taking longer than expected. Please try restarting from Step 2.');
+        }
+        return;
+      }
       
       try {
+        console.log(`[TrialPlayground] Readiness check ${retryCount + 1}/${maxRetries}`);
         const res = await fetch(`/api/tenants/${effectiveTenantId}/pipeline-ready`, {
           headers: { Authorization: `Bearer ${trialToken}` },
         });
         if (!res.ok) {
           if (res.status === 401 || res.status === 403) {
+            console.error('[TrialPlayground] Session expired');
             setReadinessError('Session expired. Please refresh.');
             return;
           }
           throw new Error('Failed to check readiness');
         }
         const data = await res.json();
+        console.log('[TrialPlayground] Readiness response:', data);
         if (!cancelled) {
-          setPipelineReady(data.ready);
+          if (data.ready) {
+            // Small debounce to avoid race with embeddings write
+            if (readyTimerRef.current) clearTimeout(readyTimerRef.current);
+            readyTimerRef.current = setTimeout(() => setPipelineReady(true), 800);
+          } else {
+            setPipelineReady(false);
+          }
           if (!data.ready) {
             retryCount++;
             // Exponential backoff: 1s, 1.5s, 2s, 2.5s... capped at 5s
             const delay = Math.min(1000 + (retryCount * 500), 5000);
-            setTimeout(checkReadiness, delay);
+            console.log(`[TrialPlayground] Not ready, retrying in ${delay}ms`);
+            if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+            retryTimerRef.current = setTimeout(checkReadiness, delay);
+          } else {
+            console.log('[TrialPlayground] Pipeline ready!');
           }
         }
       } catch (err: any) {
+        console.error('[TrialPlayground] Readiness check error:', err);
         if (!cancelled) {
           retryCount++;
           // Retry on error with longer delay
           if (retryCount < maxRetries) {
-            setTimeout(checkReadiness, 2000);
+            if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+            retryTimerRef.current = setTimeout(checkReadiness, 2000);
           } else {
             setReadinessError(err.message || 'Readiness check failed');
           }
@@ -92,7 +231,11 @@ export default function TrialPlayground({
 
     // Start immediately
     checkReadiness();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (readyTimerRef.current) clearTimeout(readyTimerRef.current);
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    };
   }, [tenantId, trialToken]);
 
   // Auto-scroll to bottom when messages change
@@ -110,6 +253,10 @@ export default function TrialPlayground({
   const handleSendMessage = useCallback(async (query?: string) => {
     const messageText = query || inputValue.trim();
     if (!messageText || isLoading) return;
+    if (!pipelineReady) {
+      setServerHint('Pipeline is still preparing. Please wait a moment and try again.');
+      return;
+    }
 
     const userMessage: ChatMessage = {
       id: generateId(),
@@ -125,7 +272,11 @@ export default function TrialPlayground({
     const startTime = Date.now();
 
     try {
-      const effectiveTenantId = tenantId || process.env.NEXT_PUBLIC_DEMO_TENANT_ID || trialToken;
+      const effectiveTenantId = tenantId || process.env.NEXT_PUBLIC_DEMO_TENANT_ID;
+      if (!effectiveTenantId) {
+        setServerHint('Missing tenant id. Please restart the onboarding flow and try again.');
+        throw new Error('Missing tenant_id');
+      }
       const payload = {
         tenant_id: effectiveTenantId,
         trial_token: trialToken,
@@ -141,7 +292,13 @@ export default function TrialPlayground({
       const data = await response.json();
       const latencyMs = Date.now() - startTime;
 
-      if (!response.ok) throw new Error(data.error || 'RAG query failed');
+      if (!response.ok) {
+        const reason = data.message || data.error || 'RAG query failed';
+        const cid = data.correlationId || data.correlation_id || null;
+        setLastCorrelationId(cid);
+        setServerHint(reason);
+        throw new Error(cid ? `${reason} (id: ${cid})` : reason);
+      }
 
       // Extract LLM info
       if (data.llmProvider || data.llmModel || data.llm_provider || data.llm_model) {
@@ -165,6 +322,8 @@ export default function TrialPlayground({
       setMessages(prev => [...prev, assistantMessage]);
       setTotalQueries(prev => prev + 1);
       setAvgLatency(prev => prev === 0 ? latencyMs : Math.round((prev + latencyMs) / 2));
+      setServerHint(null);
+      setLastCorrelationId(null);
 
     } catch (err: any) {
       const errorMessage: ChatMessage = {
@@ -179,7 +338,7 @@ export default function TrialPlayground({
 
     setIsLoading(false);
     inputRef.current?.focus();
-  }, [inputValue, isLoading, trialToken]);
+  }, [inputValue, isLoading, pipelineReady, tenantId, trialToken]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -230,7 +389,7 @@ export default function TrialPlayground({
   if (pipelineReady === null && !readinessError) {
     return (
       <div className="relative space-y-4 bg-black min-h-[600px] text-white flex flex-col items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: primary }} />
         <p className="text-white/70 text-sm">Checking pipeline readiness...</p>
       </div>
     );
@@ -252,7 +411,7 @@ export default function TrialPlayground({
   if (pipelineReady === false) {
     return (
       <div className="relative space-y-4 bg-black min-h-[600px] text-white flex flex-col items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-amber-400" />
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: secondary }} />
         <div className="text-center">
           <p className="font-semibold text-amber-300">Your knowledge base is still processing</p>
           <p className="text-sm text-white/60 mt-1">The Playground will activate automatically once ready...</p>
@@ -266,7 +425,7 @@ export default function TrialPlayground({
       {/* Header with stats */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-white" />
+          <Sparkles className="w-5 h-5" style={{ color: secondary }} />
           <label className="text-sm font-semibold text-white">AI Playground</label>
         </div>
         <div className="flex items-center gap-3 text-xs text-white/60">
@@ -283,7 +442,10 @@ export default function TrialPlayground({
             </>
           )}
           {llmInfo && (
-            <span className="bg-blue-600/30 text-blue-300 px-2 py-0.5 rounded text-[10px] font-medium">
+            <span
+              className="px-2 py-0.5 rounded text-[10px] font-medium"
+              style={{ backgroundColor: primaryFillSoft, color: secondary }}
+            >
               {llmInfo.provider || 'AI'} {llmInfo.model ? `• ${llmInfo.model.split('-').slice(0, 2).join('-')}` : ''}
             </span>
           )}
@@ -305,7 +467,10 @@ export default function TrialPlayground({
                 <div>
                   <span className="font-bold text-base">{formData.chatName || 'Support Assistant'}</span>
                   <div className="flex items-center gap-1.5 text-xs text-white/80">
-                    <div className="w-2 h-2 rounded-full bg-white animate-pulse shadow-lg shadow-white/50"></div>
+                    <div
+                      className="w-2 h-2 rounded-full animate-pulse shadow-lg"
+                      style={{ backgroundColor: secondary, boxShadow: `0 0 12px ${hexToRgba(secondary, 0.45) || 'rgba(255,255,255,0.35)'}` }}
+                    />
                     <span>Online • Powered by RAG</span>
                   </div>
                 </div>
@@ -326,7 +491,7 @@ export default function TrialPlayground({
                 <div className="flex gap-3">
                   <div 
                     className="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-bold shadow-md"
-                    style={{ backgroundColor: 'white', color: 'black' }}
+                    style={{ backgroundColor: primary, color: primaryText }}
                   >
                     AI
                   </div>
@@ -342,7 +507,8 @@ export default function TrialPlayground({
                             key={i}
                             onClick={() => handleSuggestedQuestion(q)}
                             disabled={isLoading}
-                            className="text-xs px-3 py-1.5 rounded-full border border-white/20 bg-black hover:bg-white/10 hover:border-white/30 transition-all text-white disabled:opacity-50"
+                            className="text-xs px-3 py-1.5 rounded-full border bg-black hover:bg-white/10 transition-all text-white disabled:opacity-50"
+                            style={{ borderColor: secondaryBorder }}
                           >
                             {q}
                           </button>
@@ -361,7 +527,7 @@ export default function TrialPlayground({
                     {msg.role === 'assistant' && (
                       <div 
                         className="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-bold shadow-md"
-                        style={{ backgroundColor: formData.primaryColor, color: 'white' }}
+                        style={{ backgroundColor: primary, color: primaryText }}
                       >
                         AI
                       </div>
@@ -373,6 +539,11 @@ export default function TrialPlayground({
                             ? 'bg-white/20 text-white rounded-tr-none'
                             : 'bg-black border border-white/20 text-white rounded-tl-none'
                         }`}
+                        style={
+                          msg.role === 'user'
+                            ? { backgroundColor: primaryFillSoft, color: secondaryText }
+                            : undefined
+                        }
                       >
                         <div className="whitespace-pre-wrap">{msg.content}</div>
 
@@ -397,7 +568,7 @@ export default function TrialPlayground({
                               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <button
                                   onClick={() => handleCopyMessage(msg.id, msg.content)}
-                                  className="p-1.5 rounded hover:bg-gray-100 transition-colors"
+                                  className="p-1.5 rounded hover:bg-white/10 transition-colors"
                                   title="Copy"
                                 >
                                   {copiedId === msg.id ? (
@@ -408,8 +579,8 @@ export default function TrialPlayground({
                                 </button>
                                 <button
                                   onClick={() => handleFeedback(msg.id, 'up')}
-                                  className={`p-1.5 rounded hover:bg-gray-100 transition-colors ${
-                                    msg.feedback === 'up' ? 'bg-emerald-50' : ''
+                                  className={`p-1.5 rounded hover:bg-white/10 transition-colors ${
+                                    msg.feedback === 'up' ? 'bg-emerald-500/10' : ''
                                   }`}
                                   title="Good response"
                                 >
@@ -417,8 +588,8 @@ export default function TrialPlayground({
                                 </button>
                                 <button
                                   onClick={() => handleFeedback(msg.id, 'down')}
-                                  className={`p-1.5 rounded hover:bg-gray-100 transition-colors ${
-                                    msg.feedback === 'down' ? 'bg-red-50' : ''
+                                  className={`p-1.5 rounded hover:bg-white/10 transition-colors ${
+                                    msg.feedback === 'down' ? 'bg-red-500/10' : ''
                                   }`}
                                   title="Poor response"
                                 >
@@ -468,16 +639,16 @@ export default function TrialPlayground({
                   <div className="flex gap-3">
                     <div 
                       className="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-bold shadow-md animate-pulse"
-                      style={{ backgroundColor: 'white', color: 'black' }}
+                      style={{ backgroundColor: primary, color: primaryText }}
                     >
                       AI
                     </div>
                     <div className="bg-black rounded-2xl rounded-tl-none p-4 shadow-sm border border-white/20">
                       <div className="flex items-center gap-2 text-sm text-white/60">
                         <div className="flex gap-1">
-                          <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                          <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-                          <span className="w-2 h-2 bg-white rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                          <span className="w-2 h-2 rounded-full animate-bounce" style={{ animationDelay: '0ms', backgroundColor: secondary }} />
+                          <span className="w-2 h-2 rounded-full animate-bounce" style={{ animationDelay: '150ms', backgroundColor: secondary }} />
+                          <span className="w-2 h-2 rounded-full animate-bounce" style={{ animationDelay: '300ms', backgroundColor: secondary }} />
                         </div>
                         <span className="text-xs">Searching knowledge base...</span>
                       </div>
@@ -504,13 +675,14 @@ export default function TrialPlayground({
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyDown={handleKeyDown}
                   className="flex-1 px-4 py-3 border border-white/20 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-opacity-50 text-white placeholder-white/40 bg-black transition-all"
-                  style={{ '--tw-ring-color': 'white' } as any}
-                  disabled={isLoading}
+                  style={{ '--tw-ring-color': secondary } as any}
+                  disabled={isLoading || !pipelineReady}
                 />
                 <button
                   onClick={() => handleSendMessage()}
-                  disabled={isLoading || !inputValue.trim()}
-                  className="px-5 py-3 rounded-xl text-white font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 active:scale-95 flex items-center gap-2 shadow-lg bg-white/20"
+                  disabled={isLoading || !inputValue.trim() || !pipelineReady}
+                  className="px-5 py-3 rounded-xl text-white font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 active:scale-95 flex items-center gap-2 shadow-lg"
+                  style={{ backgroundColor: primaryFillSoft, color: 'white' }}
                 >
                   {isLoading ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -524,6 +696,9 @@ export default function TrialPlayground({
                 <span className="text-[10px] text-white/40">
                   Powered by hybrid RAG • Responses are AI-generated
                 </span>
+                {serverHint && (
+                  <div className="text-[10px] text-amber-300 mt-1">{serverHint}{lastCorrelationId ? ` (id: ${lastCorrelationId})` : ''}</div>
+                )}
               </div>
             </div>
           </div>

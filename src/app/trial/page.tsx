@@ -1,4 +1,4 @@
-import TrialOnboardingWizard from '@/components/trial/TrialOnboardingWizard';
+import { redirect } from 'next/navigation';
 
 export const metadata = {
   title: 'Start Your Free Trial | BiTB Chatbot',
@@ -6,5 +6,6 @@ export const metadata = {
 };
 
 export default function TrialPage() {
-  return <TrialOnboardingWizard />;
+  // Redirect to homepage trial section - we use a single onboarding flow
+  redirect('/#trial');
 }

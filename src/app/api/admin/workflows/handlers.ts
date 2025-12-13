@@ -401,7 +401,7 @@ export async function handleGetDashboard(req: NextRequest) {
         }));
 
       const tenantData = await db
-        .from('trial_tenants')
+        .from('tenants')
         .select('email')
         .eq('tenant_id', workflow.tenant_id)
         .single();

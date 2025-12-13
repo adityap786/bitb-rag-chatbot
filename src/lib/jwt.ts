@@ -8,6 +8,8 @@ import jwt from 'jsonwebtoken';
 export interface JWTPayload {
   tenantId: string;
   sessionId: string;
+  type?: 'setup' | 'access' | 'refresh';
+  email?: string;
   iat?: number;
   exp?: number;
 }
@@ -19,7 +21,10 @@ export interface JWTPayload {
  */
 export async function verifyJWT(token: string): Promise<JWTPayload | null> {
   try {
-    const secret = process.env.JWT_SECRET || 'your-secret-key';
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      throw new Error('JWT_SECRET is not configured');
+    }
     const payload = jwt.verify(token, secret) as JWTPayload;
     return payload;
   } catch (error) {
@@ -35,7 +40,13 @@ export async function verifyJWT(token: string): Promise<JWTPayload | null> {
  * @returns JWT token string
  */
 export function generateJWT(tenantId: string, sessionId: string): string {
-  const secret = process.env.JWT_SECRET || 'your-secret-key';
-  const payload: JWTPayload = { tenantId, sessionId };
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('JWT_SECRET is not configured');
+  }
+
+  // Include a token type so it is compatible with verifyBearerToken()/verifyToken()
+  // used across the trial/onboarding APIs.
+  const payload: JWTPayload = { tenantId, sessionId, type: 'access' };
   return jwt.sign(payload, secret, { expiresIn: '1h' });
 }

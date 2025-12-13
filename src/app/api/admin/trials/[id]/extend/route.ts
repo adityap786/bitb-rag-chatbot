@@ -41,8 +41,8 @@ export async function POST(
 
     // Get current trial
     const { data: tenant, error: fetchError } = await supabase
-      .from('trial_tenants')
-      .select('trial_expires_at, status')
+      .from('tenants')
+      .select('expires_at, status')
       .eq('tenant_id', tenantId)
       .single();
 
@@ -51,16 +51,16 @@ export async function POST(
     }
 
     // Calculate new expiration date
-    const currentExpiry = new Date(tenant.trial_expires_at);
+    const currentExpiry = new Date(tenant.expires_at);
     const now = new Date();
     const baseDate = currentExpiry > now ? currentExpiry : now;
     const newExpiry = new Date(baseDate.getTime() + body.days * 24 * 60 * 60 * 1000);
 
     // Update tenant
     const { error: updateError } = await supabase
-      .from('trial_tenants')
+      .from('tenants')
       .update({
-        trial_expires_at: newExpiry.toISOString(),
+        expires_at: newExpiry.toISOString(),
         status: 'active',
       })
       .eq('tenant_id', tenantId);

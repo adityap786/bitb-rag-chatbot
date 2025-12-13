@@ -3,11 +3,8 @@
  * Detects tenant plan type and loads feature flags
  */
 
-import { createClient } from '@supabase/supabase-js';
 import type { PlanType, FeatureFlags, TenantPlanConfig } from '../types/multi-plan.js';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+import { createLazyServiceClient } from './supabase-client';
 
 export class PlanDetector {
   private supabase;
@@ -15,7 +12,8 @@ export class PlanDetector {
   private cacheTTL = 300000; // 5 minutes
 
   constructor() {
-    this.supabase = createClient(supabaseUrl, supabaseKey);
+    // Use the server-side service client so we don't depend on NEXT_PUBLIC_* env vars.
+    this.supabase = createLazyServiceClient();
     this.cache = new Map();
   }
 
@@ -30,26 +28,57 @@ export class PlanDetector {
     }
 
     try {
-      const { data, error } = await this.supabase
+      // Try the multi-plan schema first.
+      const { data: v2, error: v2Error } = await this.supabase
         .from('tenants')
-        .select('id, plan_type, industry_vertical, ecommerce_platform, calendar_integration, feature_flags, created_at, updated_at')
-        .eq('id', tenantId)
-        .single();
+        .select('tenant_id, plan_type, industry_vertical, ecommerce_platform, calendar_integration, feature_flags, created_at, updated_at')
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
 
-      if (error) {
-        console.error('Error fetching tenant plan:', error);
-        return null;
+      if (!v2Error && v2) {
+        const planType = (v2 as any).plan_type || 'service';
+        const config: TenantPlanConfig = {
+          id: (v2 as any).tenant_id,
+          plan_type: planType,
+          industry_vertical: (v2 as any).industry_vertical,
+          ecommerce_platform: (v2 as any).ecommerce_platform,
+          calendar_integration: (v2 as any).calendar_integration,
+          feature_flags: (v2 as any).feature_flags || this.getDefaultFeatureFlags(planType),
+          created_at: (v2 as any).created_at,
+          updated_at: (v2 as any).updated_at,
+        };
+
+        this.cache.set(tenantId, config);
+        setTimeout(() => this.cache.delete(tenantId), this.cacheTTL);
+        return config;
       }
 
+      // Fallback: production tenants table schema (plan/metadata/features) without multi-plan columns.
+      const { data: v1, error: v1Error } = await this.supabase
+        .from('tenants')
+        .select('tenant_id, plan, metadata, created_at, updated_at')
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+
+      if (v1Error) {
+        console.error('Error fetching tenant plan:', v1Error);
+        return null;
+      }
+      if (!v1) return null;
+
+      const metadata = ((v1 as any).metadata || {}) as any;
+      const planType: PlanType = metadata.plan_type || 'service';
+      const featureFlags: FeatureFlags = metadata.feature_flags || this.getDefaultFeatureFlags(planType);
+
       const config: TenantPlanConfig = {
-        id: data.id,
-        plan_type: data.plan_type || 'service', // Default to service plan
-        industry_vertical: data.industry_vertical,
-        ecommerce_platform: data.ecommerce_platform,
-        calendar_integration: data.calendar_integration,
-        feature_flags: data.feature_flags || this.getDefaultFeatureFlags(data.plan_type),
-        created_at: data.created_at,
-        updated_at: data.updated_at,
+        id: (v1 as any).tenant_id,
+        plan_type: planType,
+        industry_vertical: metadata.industry_vertical,
+        ecommerce_platform: metadata.ecommerce_platform,
+        calendar_integration: metadata.calendar_integration,
+        feature_flags: featureFlags,
+        created_at: (v1 as any).created_at,
+        updated_at: (v1 as any).updated_at,
       };
 
       // Cache the result
@@ -129,7 +158,7 @@ export class PlanDetector {
           ...updates,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', tenantId);
+        .eq('tenant_id', tenantId);
 
       if (error) {
         console.error('Error updating tenant plan:', error);

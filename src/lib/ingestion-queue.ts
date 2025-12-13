@@ -7,7 +7,34 @@ import { Queue, Worker, QueueScheduler, Job } from 'bullmq';
 import { upstashRedis } from './redis-client-upstash';
 
 // BullMQ requires Redis protocol, not Upstash REST. If you need serverless queues, use Upstash QStash or a cloud queue. For now, we document this limitation.
-const connection = undefined; // Upstash REST is not compatible with BullMQ. Use managed Redis TCP endpoint if needed.
+function resolveBullmqConnection(): any {
+  const bullUrl = process.env.BULLMQ_REDIS_URL;
+  const redisEnvUrl = process.env.REDIS_URL;
+
+  if (bullUrl) {
+    console.log('[DEBUG] ingestion-queue resolveBullmqConnection: using BULLMQ_REDIS_URL');
+    if (!bullUrl.startsWith('redis://') && !bullUrl.startsWith('rediss://')) {
+      throw new Error(`Invalid BullMQ Redis URL scheme. Expected redis:// or rediss://, got: ${bullUrl.split(':')[0]}://...`);
+    }
+    return { url: bullUrl };
+  }
+
+  if (redisEnvUrl) {
+    console.log('[DEBUG] ingestion-queue resolveBullmqConnection: using REDIS_URL');
+    if (!redisEnvUrl.startsWith('redis://') && !redisEnvUrl.startsWith('rediss://')) {
+      throw new Error(`Invalid BullMQ Redis URL scheme. Expected redis:// or rediss://, got: ${redisEnvUrl.split(':')[0]}://...`);
+    }
+    return { url: redisEnvUrl };
+  }
+
+  // In dev, BullMQ defaults to localhost:6379 if no connection is provided.
+  // We intentionally keep initialization lazy so `next build` does not attempt
+  // any Redis connections.
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Missing REDIS_URL/BULLMQ_REDIS_URL for BullMQ ingestion queue in production');
+  }
+  return undefined;
+}
 
 // Job schema for ingestion
 export interface IngestionJobData {
@@ -18,37 +45,28 @@ export interface IngestionJobData {
   metadata?: Record<string, any>;
 }
 
-export const ingestionQueue = new Queue<IngestionJobData>('ingestion', {
-  connection,
-});
+let _ingestionQueue: Queue<IngestionJobData> | null = null;
+let _ingestionScheduler: QueueScheduler | null = null;
 
-export const ingestionQueueScheduler = new QueueScheduler('ingestion', { connection });
-
-// In test environments, start a lightweight worker to ensure jobs are processed
-// so unit tests that enqueue jobs can observe completion without a full worker.
-if (process.env.NODE_ENV === 'test') {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const testWorker = new Worker<IngestionJobData>(
-      'ingestion',
-      async (job) => {
-        // Simple noop processor for tests — mark job as completed by returning
-        // a small result. Real processing is handled by the separate ingestion worker in production.
-        return { processed: true } as any;
-      },
-      { connection }
-    );
-  } catch (err) {
-    // If the test environment has a mocked Worker that behaves differently,
-    // swallow errors to avoid breaking unit test runs.
-    // eslint-disable-next-line no-console
-    console.warn('[IngestionQueue] test worker initialization failed', err);
+export function getIngestionQueue() {
+  if (!_ingestionQueue) {
+    _ingestionQueue = new Queue<IngestionJobData>('ingestion', {
+      connection: resolveBullmqConnection(),
+    });
   }
+  return _ingestionQueue;
+}
+
+export function getIngestionQueueScheduler() {
+  if (!_ingestionScheduler) {
+    _ingestionScheduler = new QueueScheduler('ingestion', { connection: resolveBullmqConnection() });
+  }
+  return _ingestionScheduler;
 }
 
 // Enqueue a new ingestion job
 export async function enqueueIngestionJob(job: IngestionJobData) {
-  return ingestionQueue.add('ingest', job, {
+  return getIngestionQueue().add('ingest', job, {
     attempts: 5,
     backoff: { type: 'exponential', delay: 3000 },
     removeOnComplete: true,
@@ -58,6 +76,13 @@ export async function enqueueIngestionJob(job: IngestionJobData) {
 
 // Worker process (to be run in a separate process/service)
 export function startIngestionWorker(processJob: (job: Job<IngestionJobData>) => Promise<any>) {
+  // Ensure scheduler exists for delayed/backoff jobs.
+  try {
+    getIngestionQueueScheduler();
+  } catch {
+    // If scheduler can't start (e.g. missing Redis in prod), worker start will fail anyway.
+  }
+
   const worker = new Worker<IngestionJobData>(
     'ingestion',
     async (job) => {
@@ -68,7 +93,7 @@ export function startIngestionWorker(processJob: (job: Job<IngestionJobData>) =>
         throw err;
       }
     },
-    { connection }
+    { connection: resolveBullmqConnection() }
   );
   worker.on('completed', (job) => {
     console.log(`[IngestionWorker] Job completed: ${job.id}`);

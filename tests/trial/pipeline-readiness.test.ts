@@ -14,10 +14,10 @@ describe('pipeline readiness evaluation', () => {
     ).toBe(true);
   });
 
-  it('is ready when last job completed even if vectors below threshold', () => {
+  it('is not ready when job completed but vectors below threshold', () => {
     expect(
       isPipelineReady({ ragStatus: 'pending', lastJobStatus: 'completed', vectorCount: 1, minVectors: 10 })
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('is not ready when pending and no vectors', () => {

@@ -248,9 +248,11 @@ function ROIWidget() {
 							</p>
 						</div>
 						<div className="grid w-full gap-4 sm:grid-cols-2">
-							<label className="space-y-2 text-sm text-white/70">
+							<label htmlFor="visitors" className="space-y-2 text-sm text-white/70">
 								<span className="text-white">Monthly visitors</span>
 								<input
+									id="visitors"
+									name="visitors"
 									type="number"
 									min={0}
 									value={visitors}
@@ -258,9 +260,11 @@ function ROIWidget() {
 									className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition focus:border-white/40"
 								/>
 							</label>
-							<label className="space-y-2 text-sm text-white/70">
+							<label htmlFor="conversionRate" className="space-y-2 text-sm text-white/70">
 								<span className="text-white">Conversion rate (%)</span>
 								<input
+									id="conversionRate"
+									name="conversionRate"
 									type="number"
 									min={0}
 									step={0.1}
@@ -269,9 +273,11 @@ function ROIWidget() {
 									className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition focus:border-white/40"
 								/>
 							</label>
-							<label className="space-y-2 text-sm text-white/70">
+							<label htmlFor="avgOrderValue" className="space-y-2 text-sm text-white/70">
 								<span className="text-white">Average order value (₹)</span>
 								<input
+									id="avgOrderValue"
+									name="avgOrderValue"
 									type="number"
 									min={0}
 									value={avgOrderValue}
@@ -279,9 +285,11 @@ function ROIWidget() {
 									className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition focus:border-white/40"
 								/>
 							</label>
-							<label className="space-y-2 text-sm text-white/70">
+							<label htmlFor="uplift" className="space-y-2 text-sm text-white/70">
 								<span className="text-white">Expected uplift (%)</span>
 								<input
+									id="uplift"
+									name="uplift"
 									type="number"
 									min={0}
 									step={5}

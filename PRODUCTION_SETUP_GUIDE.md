@@ -99,7 +99,7 @@ redis-server
 
 ```bash
 # Add to .env.local
-REDIS_URL=redis://localhost:6379
+BULLMQ_REDIS_URL=redis://localhost:6379
 ```
 
 ### Option B: Upstash Redis (Production - Recommended)
@@ -116,8 +116,12 @@ REDIS_URL=redis://localhost:6379
 
 ```bash
 # Add to .env.local
-UPSTASH_REDIS_URL=https://your-region.upstash.io
-UPSTASH_REDIS_TOKEN=your_token
+UPSTASH_REDIS_REST_URL=https://your-region.upstash.io
+UPSTASH_REDIS_REST_TOKEN=your_token
+
+# BullMQ requires a Redis *protocol* URL (redis:// or rediss://), not the REST URL.
+# Upstash provides this in the console as the "Redis URL" / "TLS URL".
+BULLMQ_REDIS_URL=rediss://default:password@your-region.upstash.io:6379
 ```
 
 ### Test Redis Connection
@@ -125,9 +129,12 @@ UPSTASH_REDIS_TOKEN=your_token
 Create `scripts/test-redis.mjs`:
 
 ```javascript
-import Redis from 'ioredis';
+import { Redis } from '@upstash/redis';
 
-const redis = new Redis(process.env.REDIS_URL || process.env.UPSTASH_REDIS_URL);
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN,
+});
 
 try {
   await redis.set('test', 'hello');
@@ -147,6 +154,22 @@ Run test:
 
 ```bash
 node scripts/test-redis.mjs
+```
+
+### Test BullMQ Redis (Queue Worker)
+
+BullMQ requires a Redis protocol URL. Verify `BULLMQ_REDIS_URL` works:
+
+```bash
+redis-cli -u "$BULLMQ_REDIS_URL" PING
+```
+
+### Start the Tenant Pipeline Worker
+
+The RAG ingestion pipeline runs in a dedicated BullMQ worker process (not inside Next.js requests).
+
+```bash
+npm run worker:tenant-pipeline
 ```
 
 ---
@@ -173,11 +196,14 @@ SUPABASE_SERVICE_ROLE_KEY=eyJhbG...  # Keep this secret!
 
 ```bash
 # For Upstash
-UPSTASH_REDIS_URL=https://your-region.upstash.io
-UPSTASH_REDIS_TOKEN=your_token
+UPSTASH_REDIS_REST_URL=https://your-region.upstash.io
+UPSTASH_REDIS_REST_TOKEN=your_token
+
+# BullMQ queue worker (required in production)
+BULLMQ_REDIS_URL=rediss://default:password@your-region.upstash.io:6379
 
 # OR for local Redis
-REDIS_URL=redis://localhost:6379
+BULLMQ_REDIS_URL=redis://localhost:6379
 ```
 
 ### 3.4 Optional: Configure Payment Gateway

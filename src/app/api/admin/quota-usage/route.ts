@@ -15,8 +15,8 @@ export async function GET(req: any, context: { params: Promise<{}> }) {
     // Fetch tenant usage data (mock for now - replace with actual query)
     // This would join tenant_config with usage_tracking tables
     const { data: tenants, error } = await supabase
-      .from('trial_tenants')
-      .select('tenant_id, tenant_name, plan')
+      .from('tenants')
+      .select('tenant_id, name, plan')
       .limit(limit);
 
     if (error) {
@@ -27,8 +27,8 @@ export async function GET(req: any, context: { params: Promise<{}> }) {
     // Mock usage data - replace with actual tracking
     const quotaData = tenants?.map((tenant) => ({
       tenant_id: tenant.tenant_id,
-      tenant_name: tenant.tenant_name || 'Unknown',
-      plan: tenant.plan || 'Trial',
+      tenant_name: tenant.name || 'Unknown',
+      plan: tenant.plan || 'trial',
       tokens_used: Math.floor(Math.random() * 10000),
       tokens_limit: 10000,
       queries_used: Math.floor(Math.random() * 100),

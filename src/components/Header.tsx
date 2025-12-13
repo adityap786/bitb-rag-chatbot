@@ -7,7 +7,7 @@ const NAV_LINKS = [
   { href: '/documentation', label: 'Documentation' },
   { href: '/subscriptions', label: 'Subscription' },
   { href: '/company', label: 'Company' },
-  { href: '/trial', label: 'Playground' },
+  { href: '/#trial', label: 'Playground' },
 ];
 
 export default function Header() {

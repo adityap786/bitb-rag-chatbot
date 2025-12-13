@@ -22,11 +22,11 @@ export type BusinessType = (typeof VALID_BUSINESS_TYPES)[number];
 export const VALID_CHAT_TONES = ['professional', 'friendly', 'casual'] as const;
 export type ChatTone = (typeof VALID_CHAT_TONES)[number];
 
-// Status values
-export const VALID_STATUSES = ['active', 'expired', 'upgraded', 'cancelled'] as const;
+// Status values (includes pipeline states)
+export const VALID_STATUSES = ['pending', 'processing', 'ready', 'failed', 'active', 'expired', 'upgraded', 'cancelled'] as const;
 export type TrialStatus = (typeof VALID_STATUSES)[number];
 
-// RAG statuses
+// RAG statuses (subset for backward compatibility)
 export const VALID_RAG_STATUSES = ['pending', 'processing', 'ready', 'failed'] as const;
 export type RAGStatus = (typeof VALID_RAG_STATUSES)[number];
 

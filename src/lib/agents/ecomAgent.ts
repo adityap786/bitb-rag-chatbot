@@ -8,7 +8,7 @@
 import { ECOM_TOOLS, enforceEcomAccess, getEcomToolConfig } from '../mcp/tools/ecom/registry';
 import { MCPToolRequest, MCPToolResponse } from '../mcp/types';
 import { upstashRedis } from '../redis-client-upstash';
-import { onboardingQueue } from '../queue/onboardingQueue';
+import { getOnboardingQueue } from '../queue/onboardingQueue';
 import { Job } from 'bullmq';
 const ONBOARDING_CACHE_TTL_MS = 5 * 60; // 5 minutes in seconds for Redis
 
@@ -74,7 +74,7 @@ export class EcomReACTAgent {
     this.tenantId = tenantId;
     this.tenantType = tenantType;
     this.scratchpad = { steps: [] };
-    this.onboardingQueue = opts?.onboardingQueue || onboardingQueue;
+    this.onboardingQueue = opts?.onboardingQueue;
     this.observability = opts?.observability || {};
     this.retryStrategy = {
       maxStepBacks: opts?.retryStrategy?.maxStepBacks ?? 2,
@@ -132,55 +132,85 @@ export class EcomReACTAgent {
             { action: 'catalog_ingestion', input: this.buildActionInput('catalog_ingestion', userQuery) },
             { action: 'update_settings', input: this.buildActionInput('update_settings', userQuery) },
           ];
-          const batchStart = Date.now();
-          const jobs: Job[] = [];
-          for (const a of actions) {
-            const job = await this.onboardingQueue.add(a.action, { type: a.action, tenantId: this.tenantId, ...a.input });
-            jobs.push(job);
+          const redisEnabled = Boolean(process.env.BULLMQ_REDIS_URL || process.env.REDIS_URL);
+          const shouldUseQueue =
+            Boolean(this.onboardingQueue) ||
+            (redisEnabled && (process.env.NODE_ENV !== 'test' || process.env.TEST_USE_REDIS === '1'));
+
+          if (shouldUseQueue) {
+            const onboardingQueue = this.onboardingQueue || getOnboardingQueue();
+            const batchStart = Date.now();
+            const jobs: Job[] = [];
+            for (const a of actions) {
+              const job = await onboardingQueue.add(a.action, { type: a.action, tenantId: this.tenantId, ...a.input });
+              jobs.push(job);
+            }
+
+            const pollJobResult = async (job: Job, timeoutMs = 10000, pollInterval = 250): Promise<any> => {
+              const start = Date.now();
+              while (Date.now() - start < timeoutMs) {
+                const fresh = await onboardingQueue.getJob(job.id!);
+                if (fresh && fresh.failedReason) {
+                  throw new Error(`Onboarding job failed: ${job.name} - ${fresh.failedReason}`);
+                }
+                if (fresh && fresh.returnvalue && typeof fresh.returnvalue.status === 'string' && fresh.returnvalue.status.toLowerCase().includes('fail')) {
+                  throw new Error(`Onboarding job failed: ${job.name} - ${fresh.returnvalue.status}`);
+                }
+                if (fresh && fresh.finishedOn) {
+                  return fresh.returnvalue;
+                }
+                await new Promise(res => setTimeout(res, pollInterval));
+              }
+              throw new Error(`Onboarding job timeout: ${job.name}`);
+            };
+
+            for (const [i, job] of jobs.entries()) {
+              let result;
+              try {
+                result = await pollJobResult(job);
+              } catch (err) {
+                if (this.observability.onError) this.observability.onError(err, { stepBackCount });
+                throw err;
+              }
+              if (result && typeof result.status === 'string' && result.status.toLowerCase().includes('fail')) {
+                const failErr = new Error(`Onboarding job failed: ${actions[i].action} - ${result.status}`);
+                if (this.observability.onError) this.observability.onError(failErr, { stepBackCount });
+                throw failErr;
+              }
+              this.scratchpad.steps.push({
+                thought: `Batch onboarding: ${actions[i].action}`,
+                action: actions[i].action,
+                actionInput: actions[i].input,
+                observation: result,
+              });
+              if (this.observability.onStep) {
+                this.observability.onStep(this.scratchpad.steps[this.scratchpad.steps.length - 1], { stepBackCount });
+              }
+            }
+            stepTimings.push(Date.now() - batchStart);
+          } else {
+            const batchStart = Date.now();
+            for (const a of actions) {
+              const result = await this.executeTool(a.action, a.input);
+              if (result && typeof result.status === 'string' && result.status.toLowerCase().includes('fail')) {
+                throw new Error(`Onboarding step failed: ${a.action} - ${result.status}`);
+              }
+              if (result && result.success === false) {
+                throw new Error(`Onboarding step failed: ${a.action}`);
+              }
+              this.scratchpad.steps.push({
+                thought: `Onboarding: ${a.action}`,
+                action: a.action,
+                actionInput: a.input,
+                observation: result,
+              });
+              if (this.observability.onStep) {
+                this.observability.onStep(this.scratchpad.steps[this.scratchpad.steps.length - 1], { stepBackCount });
+              }
+            }
+            stepTimings.push(Date.now() - batchStart);
           }
-          const pollJobResult = async (job: Job, timeoutMs = 10000, pollInterval = 250): Promise<any> => {
-            const start = Date.now();
-            while (Date.now() - start < timeoutMs) {
-              const fresh = await this.onboardingQueue.getJob(job.id!);
-              if (fresh && fresh.failedReason) {
-                throw new Error(`Onboarding job failed: ${job.name} - ${fresh.failedReason}`);
-              }
-              if (fresh && fresh.returnvalue && typeof fresh.returnvalue.status === 'string' && fresh.returnvalue.status.toLowerCase().includes('fail')) {
-                throw new Error(`Onboarding job failed: ${job.name} - ${fresh.returnvalue.status}`);
-              }
-              if (fresh && fresh.finishedOn) {
-                return fresh.returnvalue;
-              }
-              await new Promise(res => setTimeout(res, pollInterval));
-            }
-            throw new Error(`Onboarding job timeout: ${job.name}`);
-          };
-          const batchResults = [];
-          for (const [i, job] of jobs.entries()) {
-            let result;
-            try {
-              result = await pollJobResult(job);
-            } catch (err) {
-              if (this.observability.onError) this.observability.onError(err, { stepBackCount });
-              throw err;
-            }
-            if (result && typeof result.status === 'string' && result.status.toLowerCase().includes('fail')) {
-              const failErr = new Error(`Onboarding job failed: ${actions[i].action} - ${result.status}`);
-              if (this.observability.onError) this.observability.onError(failErr, { stepBackCount });
-              throw failErr;
-            }
-            batchResults.push(result);
-            this.scratchpad.steps.push({
-              thought: `Batch onboarding: ${actions[i].action}`,
-              action: actions[i].action,
-              actionInput: actions[i].input,
-              observation: result,
-            });
-            if (this.observability.onStep) {
-              this.observability.onStep(this.scratchpad.steps[this.scratchpad.steps.length - 1], { stepBackCount });
-            }
-          }
-          stepTimings.push(Date.now() - batchStart);
+
           const paymentInput = this.buildActionInput('payment_link', userQuery);
           let paymentObs;
           try {

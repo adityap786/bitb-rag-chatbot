@@ -1,7 +1,7 @@
 export {};
 
 import crypto from 'crypto';
-import Redis from 'ioredis';
+import { redis as upstashRedis } from '@/lib/redis-client';
 import pRetry from 'p-retry';
 import { getSupabaseRetriever, validateTenantId } from './supabase-retriever';
 import { getTenantConfig } from '../config/tenant-config-loader';
@@ -36,7 +36,7 @@ export interface TenantRetrieverOptions {
   k?: number;
   similarityThreshold?: number;
   useCache?: boolean;
-  redis?: Redis;
+  redis?: any;
   redisUrl?: string;
   cacheTtlSeconds?: number;
   maxRetries?: number;
@@ -47,7 +47,7 @@ export interface TenantRetrieverOptions {
 
 export class TenantIsolatedRetriever {
   private retrieverPromise: Promise<any>;
-  private redis: Redis | null;
+  private redis: any | null;
   private readonly cacheTtl: number;
   private readonly maxRetries: number;
   private readonly retryMinTimeout: number;
@@ -56,7 +56,7 @@ export class TenantIsolatedRetriever {
 
   private constructor(
     private readonly tenantId: string,
-    private readonly options: Required<Omit<TenantRetrieverOptions, 'redis' | 'redisUrl' | 'supabasePoolConfig'>> & { redis: Redis | null; tenantId: string; supabasePoolConfig?: SupabasePoolConfig }
+    private readonly options: Required<Omit<TenantRetrieverOptions, 'redis' | 'redisUrl' | 'supabasePoolConfig'>> & { redis: any | null; tenantId: string; supabasePoolConfig?: SupabasePoolConfig }
   ) {
     this.redis = options.redis;
     this.cacheTtl = options.cacheTtlSeconds;
@@ -80,15 +80,8 @@ export class TenantIsolatedRetriever {
   static async create(tenantId: string, config?: TenantRetrieverOptions & { userId?: string; sessionId?: string }) {
     validateTenantId(tenantId);
 
-    const redisClient =
-      config?.redis ??
-      (config?.redisUrl
-        ? new Redis(config.redisUrl, {
-            maxRetriesPerRequest: 3,
-            enableReadyCheck: true,
-            connectTimeout: 5000,
-          })
-        : null);
+    const useCache = config?.useCache ?? true;
+    const redisClient = config?.redis ?? (useCache ? (upstashRedis as any) : null);
 
     // --- YAML-based rollout logic ---
     let useV3 = false;
@@ -325,8 +318,8 @@ export class TenantIsolatedRetriever {
   }
 
   async close(): Promise<void> {
-    if (this.redis) {
-      await this.redis.quit();
+    if (this.redis && typeof (this.redis as any).quit === 'function') {
+      await (this.redis as any).quit();
     }
   }
 
@@ -371,7 +364,11 @@ export class TenantIsolatedRetriever {
           metadata: doc.metadata,
         }))
       );
-      await this.redis.setex(cacheKey, this.cacheTtl, serialized);
+      if (typeof this.redis.set === 'function') {
+        await (this.redis as any).set(cacheKey, serialized, { ex: this.cacheTtl });
+      } else if (typeof this.redis.setex === 'function') {
+        await (this.redis as any).setex(cacheKey, this.cacheTtl, serialized);
+      }
     } catch (error) {
       logger.warn('Failed to write retriever cache', {
         tenantId: this.tenantId,

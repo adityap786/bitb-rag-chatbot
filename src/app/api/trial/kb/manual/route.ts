@@ -17,6 +17,7 @@ import { verifyBearerToken } from '@/lib/trial/auth';
 import TrialLogger from '@/lib/trial/logger';
 import { createLazyServiceClient } from '@/lib/supabase-client';
 import { startTenantPipeline } from '@/lib/trial/start-pipeline';
+import { rateLimit, RATE_LIMITS } from '@/middleware/rate-limit';
 
 const supabase = createLazyServiceClient();
 
@@ -27,6 +28,10 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
   const requestId = crypto.randomUUID();
 
   try {
+    // Cheap IP/user rate limiting before auth/DB work
+    const ipRateLimitResponse = await rateLimit(req, RATE_LIMITS.trial);
+    if (ipRateLimitResponse) return ipRateLimitResponse;
+
     // Verify authentication
     let token;
     try {
@@ -64,7 +69,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
 
     // Check tenant exists and is active
     const { data: tenant, error: tenantError } = await supabase
-      .from('trial_tenants')
+      .from('tenants')
       .select('status')
       .eq('tenant_id', tenantId)
       .single();
@@ -137,6 +142,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
       .single();
 
     if (insertError || !kb) {
+      TrialLogger.error('Failed to insert manual KB into database', new Error(insertError?.message || 'Unknown'), { requestId, tenantId, insertError: insertError?.message });
       throw new InternalError('Failed to insert manual KB', new Error(insertError?.message || 'Unknown'));
     }
 
@@ -200,10 +206,11 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
       );
     }
 
-    TrialLogger.error('Unexpected error in manual KB', error as Error, { requestId });
-    TrialLogger.logRequest('POST', '/api/trial/kb/manual', 500, duration, { requestId });
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    TrialLogger.error('Unexpected error in manual KB', error as Error, { requestId, errorMsg, errorType: typeof error });
+    TrialLogger.logRequest('POST', '/api/trial/kb/manual', 500, duration, { requestId, error: errorMsg });
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Failed to save knowledge base. Please try again or contact support.' },
       { status: 500 }
     );
   }

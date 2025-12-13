@@ -18,8 +18,8 @@ export async function GET(req: NextRequest) {
     // For now, we'll keep it simple but read-only.
 
     const { data: tenant, error } = await supabase
-      .from('trial_tenants')
-      .select('rag_status')
+      .from('tenants')
+      .select('status')
       .eq('tenant_id', tenantId)
       .single();
 
@@ -27,7 +27,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ready: false, reason: 'Tenant not found' });
     }
 
-    if (tenant.rag_status !== 'active') {
+    // For tenants table, 'active' status means RAG is ready
+    if (tenant.status !== 'active') {
       // Double check if there's a completed job, maybe status wasn't updated
       const { data: job } = await supabase
         .from('ingestion_jobs')
@@ -44,7 +45,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ 
         ready: false, 
         reason: 'Pipeline not ready',
-        status: tenant.rag_status 
+        status: tenant.status 
       });
     }
 

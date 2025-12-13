@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { TenantIsolatedRetriever } from '@/lib/rag/supabase-retriever-v2';
 import { getGroqClient } from '@/lib/rag/llm-client-with-breaker';
 import { logger } from '@/lib/observability/logger';
+import { redis as upstashRedis } from '@/lib/redis-client';
 
 interface RetrieverCheckResult {
   status: 'ok' | 'failed' | 'skipped';
@@ -25,34 +26,27 @@ export async function GET(req: any, context: { params: Promise<{}> }) {
     detail: tenantId ? 'Pending execution' : 'Tenant ID not provided',
   };
 
-  // Redis health metrics
+  // Redis health metrics (use Upstash if configured)
   let redisStats: any = null;
   try {
-    if (process.env.RAG_REDIS_URL) {
-      const Redis = (await import('ioredis')).default;
-      const redisClient = new Redis(process.env.RAG_REDIS_URL, {
-        tls: process.env.RAG_REDIS_URL?.startsWith('rediss://') ? {} : undefined,
-        maxRetriesPerRequest: 3,
-        enableReadyCheck: true,
-        connectTimeout: 5000,
-      });
-      await redisClient.connect();
-      const ping = await redisClient.ping();
-      const info = await redisClient.info();
-      const memoryMatch = info.match(/used_memory:(\d+)/);
-      const keyspaceMatch = info.match(/db0:keys=(\d+),expires=(\d+),avg_ttl=(\d+)/);
-      redisStats = {
-        ping,
-        memory: memoryMatch ? Number(memoryMatch[1]) : null,
-        keyspace: keyspaceMatch
-          ? {
-              keys: Number(keyspaceMatch[1]),
-              expires: Number(keyspaceMatch[2]),
-              avg_ttl: Number(keyspaceMatch[3]),
-            }
-          : null,
-      };
-      await redisClient.quit();
+    if (process.env.UPSTASH_REDIS_REST_URL || process.env.RAG_REDIS_URL) {
+      try {
+        const client = upstashRedis as any;
+        // Try lightweight health check: set a short-lived key and read it back
+        const healthKey = '__health_check__';
+        if (typeof client.set === 'function') {
+          await client.set(healthKey, '1', { ex: 5 });
+          const val = await client.get(healthKey);
+          redisStats = { ok: val === '1' };
+        } else if (typeof client.ping === 'function') {
+          const ping = await client.ping();
+          redisStats = { ping };
+        } else {
+          redisStats = { info: 'Upstash client present (no ping available)' };
+        }
+      } catch (err) {
+        redisStats = { error: err instanceof Error ? err.message : String(err) };
+      }
     }
   } catch (err) {
     redisStats = { error: err instanceof Error ? err.message : String(err) };
