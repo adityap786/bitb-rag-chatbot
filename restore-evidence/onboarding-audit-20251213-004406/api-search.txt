@@ -1,0 +1,54 @@
+﻿CHANGELOG.md:11:- API route `POST /api/ingest` for starting ingestion jobs
+CHANGELOG.md:60:- `POST /api/ingest` - Start ingestion job with file upload
+COMPLETION_SUMMARY.md:40:2. **`POST /api/ingest`** Γ£à  
+ONBOARDING_FLOW_CONFIRMATION.md:201:3. ContinueWithLoader polls `/api/trial/ingestion-status?jobId={jobId}`
+REQUIREMENTS.md:151:Γöé  POST /api/ingest           ΓåÆ Start ingestion job          Γöé
+REQUIREMENTS.md:192:Γöé   Γöé   Γöé   Γö£ΓöÇΓöÇ ingest/route.ts         # POST /api/ingest
+REQUIREMENTS.md:591:### 2. `POST /api/ingest`
+REQUIREMENTS.md:1524:- Created `POST /api/ingest` route for starting ingestion jobs
+REQUIREMENTS.md:1656:2. `POST /api/ingest`: Starts ingestion job with file/URL validation
+docs/ENTERPRISE_IMPLEMENTATION_PLAN.md:1086:#### 2. `POST /api/ingest`
+docs/ONBOARDING_ARCHITECTURE_ANALYSIS.md:60:Γöé  Γöé  /api/tenants/[tenantId]/ingest/[runId]/events                   Γöé       Γöé
+docs/ONBOARDING_ARCHITECTURE_ANALYSIS.md:126:| Ingest Route | `/api/tenants/[id]/ingest/route.ts` | Job creation, pipeline initiation |
+docs/ONBOARDING_ARCHITECTURE_ANALYSIS.md:127:| SSE Events | `/api/tenants/[id]/ingest/[runId]/events/route.ts` | Real-time progress streaming |
+docs/ONBOARDING_ARCHITECTURE_ANALYSIS.md:128:| Pipeline Ready | `/api/tenants/[id]/pipeline-ready/route.ts` | Readiness check with 3s cache |
+docs/ONBOARDING_ARCHITECTURE_ANALYSIS.md:193:3. `pipeline-ready` endpoint polled by TrialPlayground
+docs/ONBOARDING_RAG_PIPELINE_DIAGNOSIS.md:19:| Playground Gating | Γ£à **NEW** | Polls `/pipeline-ready` before enabling queries |
+docs/ONBOARDING_RAG_PIPELINE_DIAGNOSIS.md:82:- ΓÜá∩╕Å **Gap:** Loader connects to `/api/tenants/${tenantId}/ingest/${jobId}/events` but `pipeline.completed` event is never emitted by backend
+docs/ONBOARDING_RAG_PIPELINE_DIAGNOSIS.md:95:| `/api/trial/ingestion-status` | GET | Poll job status | Γ£à Working |
+docs/ONBOARDING_RAG_PIPELINE_DIAGNOSIS.md:96:| `/api/trial/ingestion-steps/stream` | GET | SSE step events | Γ£à Working |
+docs/ONBOARDING_RAG_PIPELINE_DIAGNOSIS.md:97:| `/api/tenants/:tenantId/ingest/:runId/events` | GET | SSE (new route) | Γ£à Working |
+docs/ONBOARDING_RAG_PIPELINE_DIAGNOSIS.md:98:| `/api/tenants/:tenantId/pipeline-ready` | GET | Readiness check | Γ£à Working |
+docs/ONBOARDING_RAG_PIPELINE_DIAGNOSIS.md:100:| `/api/tenants/:tenantId/ingest/:runId/cancel` | POST | Cancel job | Γ¥î **Missing** |
+docs/ONBOARDING_RAG_PIPELINE_DIAGNOSIS.md:122:**GET /api/tenants/:tenantId/pipeline-ready**
+docs/ONBOARDING_RAG_PIPELINE_DIAGNOSIS.md:203:**Route:** `/api/tenants/[tenantId]/ingest/[runId]/events/route.ts`
+docs/ONBOARDING_RAG_PIPELINE_DIAGNOSIS.md:335:**New file:** `src/app/api/tenants/[tenantId]/ingest/[runId]/cancel/route.ts`
+docs/ONBOARDING_RAG_PIPELINE_DIAGNOSIS.md:495:| SSE route | `src/app/api/tenants/[tenantId]/ingest/[runId]/events/route.ts` |
+docs/ONBOARDING_RAG_PIPELINE_DIAGNOSIS.md:496:| Pipeline ready API | `src/app/api/tenants/[tenantId]/pipeline-ready/route.ts` |
+docs/PHASE_2_LLAMAINDEX_MIGRATION_PLAN.md:67:curl -X POST "http://localhost:8000/ingest" -H "Content-Type: application/json" -d @- << 'JSON'
+docs/PHASE_2_LLAMAINDEX_MIGRATION_PLAN.md:91:curl -X POST "http://localhost:8000/ingest" \
+docs/PHASE_2_LLAMAINDEX_MIGRATION_PLAN.md:99:curl -X POST "http://localhost:8000/ingest?chunk=false" \
+docs/PRODUCTION_READINESS_ASSESSMENT.md:51:Γöé  /api/ask  /api/ingest  /api/start-trial  /api/admin/*     Γöé
+docs/QUEUE_SYSTEM.md:374:// POST /api/ingest
+docs/QUEUE_SYSTEM.md:380:// POST /api/ingest
+docs/RAG_PIPELINE_API.md:9:**POST** `/api/tenants/:tenantId/ingest`
+docs/RAG_PIPELINE_API.md:25:**GET** `/api/tenants/:tenantId/ingest/:runId/events`
+docs/RAG_PIPELINE_API.md:35:**GET** `/api/tenants/:tenantId/ingest/:runId/status`
+docs/RAG_PIPELINE_API.md:53:**GET** `/api/tenants/:tenantId/pipeline-ready`
+docs/TENANT_ISOLATION_DESIGN.md:80:- `POST /api/trial/ingest` ΓåÆ requires `trial_token` (maps to tenant_id)
+docs/TENANT_ISOLATION_DESIGN.md:127:POST /api/trial/ingest
+docs/fastify-README.md:87:curl -X POST http://localhost:3001/api/ingest \
+docs/fastify-README.md:107:curl -X POST http://localhost:3001/api/ingest \
+docs/fastify-requirements.md:74:### POST /api/ingest
+scripts/setup-test-tenant.ts:155:    console.log('  1. Test ingestion: POST /api/ingest');
+server-fastify.js:507: * POST /api/ingest
+server-fastify.js:835:    console.log('   POST   /api/ingest');
+src/app/api/tenants/[tenantId]/pipeline-ready/route.ts:76:      console.error('[pipeline-ready] Tenant not found:', { tenantId, error: tenantError?.message });
+src/app/api/tenants/[tenantId]/pipeline-ready/route.ts:102:      console.log('[pipeline-ready] Not ready:', {
+src/components/trial/MultiStepLoader.tsx:5:import { createParser, type EventSourceMessage } from 'eventsource-parser';
+src/components/trial/MultiStepLoader.tsx:156:        const streamUrl = `/api/tenants/${tenantId}/ingest/${jobId}/events`;
+src/components/trial/MultiStepLoader.tsx:170:          onEvent(event: EventSourceMessage) {
+src/components/trial/TrialOnboardingWizard.tsx:143:        const res = await fetch(`/api/trial/ingestion-status?jobId=${ingestionJobId}`, {
+src/components/trial/TrialOnboardingWizard.tsx:268:      const res = await fetch(`/api/tenants/${state.tenantId}/ingest`, {
+src/components/trial/TrialPlayground.tsx:72:        const res = await fetch(`/api/tenants/${effectiveTenantId}/pipeline-ready`, {
+src/lib/langfuse/index.ts:345:    const response = await fetch(`${this.baseUrl}/api/public/ingestion`, {

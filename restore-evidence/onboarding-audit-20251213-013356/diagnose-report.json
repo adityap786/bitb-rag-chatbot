@@ -1,0 +1,97 @@
+{
+  "meta": {
+    "timestamp": "2025-12-13T02:00:00.000Z",
+    "evidenceDir": "restore-evidence/onboarding-audit-20251213-013356",
+    "notes": [
+      "Timestamp value is informational; see timestamp.txt for authoritative run time.",
+      "This report is derived from source inspection + the evidence logs in this folder."
+    ]
+  },
+  "flow": {
+    "happyPath": [
+      "POST /api/trial/start",
+      "POST /api/trial/kb/manual (optional auto-start pipeline)",
+      "POST /api/tenants/:tenantId/ingest (start/reuse pipeline run)",
+      "GET /api/tenants/:tenantId/ingest/:runId/events (SSE progress)",
+      "GET /api/tenants/:tenantId/pipeline-ready (readiness gating)",
+      "POST /api/trial/branding",
+      "POST /api/trial/generate-widget",
+      "POST /api/ask",
+      "POST /api/widget/session",
+      "POST /api/widget/chat"
+    ]
+  },
+  "sse": {
+    "tenantStream": {
+      "path": "/api/tenants/{tenantId}/ingest/{runId}/events",
+      "events": [
+        "step.started",
+        "step.completed",
+        "step.failed",
+        "pipeline.completed",
+        "pipeline.cancelled"
+      ],
+      "sourceTables": ["ingestion_job_steps", "ingestion_jobs"],
+      "pollingIntervalMs": 500
+    },
+    "trialStream": {
+      "path": "/api/trial/ingestion-steps/stream?jobId={jobId}",
+      "events": ["step.started", "step.completed", "step.failed"],
+      "sourceTables": ["ingestion_job_steps"],
+      "pollingIntervalMs": 2000
+    }
+  },
+  "readiness": {
+    "env": {
+      "MIN_PIPELINE_VECTORS": "default 10"
+    },
+    "rule": "ready iff lastJob.status == 'completed' AND vectorCount >= MIN_PIPELINE_VECTORS (or ragStatus == 'ready')",
+    "notes": [
+      "Readiness is derived in /api/tenants/:tenantId/pipeline-ready and should match /api/ask gating.",
+      "Small KBs may never reach MIN_PIPELINE_VECTORS unless the env default is tuned."
+    ]
+  },
+  "findings": [
+    {
+      "id": "ONB-001",
+      "severity": "critical",
+      "title": "Pipeline state incorrectly tied to tenants.status (lifecycle) causing drift / duplicate job risk",
+      "status": "fixed",
+      "fixSummary": "Pipeline duplicate detection now uses ingestion_jobs status; rag-pipeline no longer writes pipeline states into tenants.status.",
+      "evidence": [
+        "docs/assumptions.md",
+        "docs/api-contracts.md"
+      ]
+    },
+    {
+      "id": "ONB-002",
+      "severity": "high",
+      "title": "Legacy endpoints (/api/start-trial, /api/ingest) appear to use a different schema and token model",
+      "status": "open",
+      "evidence": [
+        "onboarding-route-map.txt"
+      ],
+      "recommendation": "Deprecate or align to the /api/trial/* + /api/tenants/* ingestion model; add explicit docs + contract tests to prevent regressions."
+    },
+    {
+      "id": "ONB-003",
+      "severity": "high",
+      "title": "Build shows bundler warnings and attempts to connect to Redis during collection",
+      "status": "open",
+      "evidence": [
+        "logs/build.log"
+      ],
+      "recommendation": "Remove import-time queue/redis side effects; gate worker initialization to runtime-only execution paths."
+    },
+    {
+      "id": "ONB-004",
+      "severity": "medium",
+      "title": "Vitest runtime cost elevated because coverage is enabled by default",
+      "status": "open",
+      "evidence": [
+        "logs/onboarding-tests.log"
+      ],
+      "recommendation": "Enable coverage only in CI (CLI flag) to speed local audit loops."
+    }
+  ]
+}

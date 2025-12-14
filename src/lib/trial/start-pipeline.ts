@@ -76,7 +76,21 @@ export async function startTenantPipeline(tenantId: string, options: StartPipeli
   // This avoids running heavy ingestion inside the Next.js request lifecycle.
   const hasBullmqRedis = Boolean(process.env.BULLMQ_REDIS_URL || process.env.REDIS_URL);
   if (hasBullmqRedis) {
-    await enqueueTenantPipelineJob({ tenantId, jobId: job.job_id, config });
+    try {
+      await enqueueTenantPipelineJob({ tenantId, jobId: job.job_id, config });
+    } catch (err: any) {
+      console.warn('[startTenantPipeline] BullMQ enqueue failed, falling back to in-process execution:', err.message);
+
+      // Fallback: run in-process
+      void buildRAGPipeline(tenantId, config, job.job_id).catch((err) => {
+        console.error('[startTenantPipeline] build pipeline via fallback failed', {
+          tenantId,
+          jobId: job.job_id,
+          error: err.message,
+          stack: err.stack,
+        });
+      });
+    }
   } else {
     // In production, do not run heavy ingestion work inside the Next.js request lifecycle.
     if (process.env.NODE_ENV === 'production') {

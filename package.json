@@ -49,7 +49,8 @@
         "safety:rerank": "npx tsx -e \"import { retrieveWithSafetyReRanking } from '@/lib/safety/rrf-reranker'; console.log('Re-ranker loaded');\"",
         "safety:compare": "npx tsx scripts/compare-safety-reports.ts",
         "test:safety": "vitest run tests/safety/",
-        "worker:tenant-pipeline": "tsx src/workers/tenantPipelineWorker.ts"
+        "worker:tenant-pipeline": "tsx src/workers/tenantPipelineWorker.ts",
+        "worker:ingest": "tsx src/workers/ingestWorker.ts"
     },
     "dependencies": {
         "@ai-sdk/groq": "^2.0.31",

@@ -97,7 +97,8 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
     }
 
     // Compute content hash for deduplication
-    const contentHash = createHash('sha256').update(rawText).digest('hex');
+    // Compute content hash for deduplication (scoped to tenant to avoid global collision)
+    const contentHash = createHash('sha256').update(`${tenantId}|${rawText}`).digest('hex');
 
     // Check if already exists
     const { data: existing, error: checkError } = await supabase

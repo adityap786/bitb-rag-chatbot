@@ -1,0 +1,47 @@
+﻿ONBOARDING_FLOW_CONFIRMATION.md:59:Γöé Γöé  Γö£ΓöÇ vectorCount >= minVectors (10) Γ£ô                          Γöé
+ONBOARDING_FLOW_CONFIRMATION.md:108:     - Checks `vectorCount >= 10` OR
+ONBOARDING_FLOW_CONFIRMATION.md:125:- vectorCount >= minVectors (default: 10)
+ONBOARDING_FLOW_CONFIRMATION.md:130:- vectorCount < minVectors
+ONBOARDING_FLOW_CONFIRMATION.md:188:Γ£à **Widget auto-generated after pipeline ready**
+PHASE_2_EXPLANATION.md:287:  b) Request re-upload ΓåÆ Reset to kb_ingest step
+docs/ONBOARDING_ARCHITECTURE_ANALYSIS.md:70:Γöé  Γöé Playground Link Γöé         (waits for pipeline ready)                     Γöé
+docs/ONBOARDING_ARCHITECTURE_ANALYSIS.md:128:| Pipeline Ready | `/api/tenants/[id]/pipeline-ready/route.ts` | Readiness check with 3s cache |
+docs/ONBOARDING_ARCHITECTURE_ANALYSIS.md:193:3. `pipeline-ready` endpoint polled by TrialPlayground
+docs/ONBOARDING_RAG_PIPELINE_DIAGNOSIS.md:19:| Playground Gating | Γ£à **NEW** | Polls `/pipeline-ready` before enabling queries |
+docs/ONBOARDING_RAG_PIPELINE_DIAGNOSIS.md:98:| `/api/tenants/:tenantId/pipeline-ready` | GET | Readiness check | Γ£à Working |
+docs/ONBOARDING_RAG_PIPELINE_DIAGNOSIS.md:122:**GET /api/tenants/:tenantId/pipeline-ready**
+docs/ONBOARDING_RAG_PIPELINE_DIAGNOSIS.md:125:{ ready: boolean; ragStatus: string; vectorCount: number; minVectors: number; lastIngestion: {...} | null }
+docs/ONBOARDING_RAG_PIPELINE_DIAGNOSIS.md:247:export function isPipelineReady({ ragStatus, lastJobStatus, vectorCount, minVectors }) {
+docs/ONBOARDING_RAG_PIPELINE_DIAGNOSIS.md:249:  if (vectorCount >= Math.max(minVectors, 0)) return true;
+docs/ONBOARDING_RAG_PIPELINE_DIAGNOSIS.md:496:| Pipeline ready API | `src/app/api/tenants/[tenantId]/pipeline-ready/route.ts` |
+docs/RAG_PIPELINE_API.md:53:**GET** `/api/tenants/:tenantId/pipeline-ready`
+docs/REDIS_EMBEDDING_OPTIMIZATION.md:177://   vectorCount: 50000,
+src/app/api/ask/route.ts:301:    const { count: vectorCount = 0 } = vectorResult;
+src/app/api/ask/route.ts:308:      vectorCount: vectorCount ?? 0,
+src/app/api/ask/route.ts:315:        vectorCount,
+src/app/api/ask/route.ts:326:          vectorCount: vectorCount ?? 0,
+src/app/api/tenants/[tenantId]/pipeline-ready/route.ts:73:    const { count: vectorCount = 0 } = vectorResult;
+src/app/api/tenants/[tenantId]/pipeline-ready/route.ts:76:      console.error('[pipeline-ready] Tenant not found:', { tenantId, error: tenantError?.message });
+src/app/api/tenants/[tenantId]/pipeline-ready/route.ts:86:    if (lastJob?.status === 'completed' && (vectorCount ?? 0) >= Math.max(minVectors, 0)) {
+src/app/api/tenants/[tenantId]/pipeline-ready/route.ts:96:      vectorCount: vectorCount ?? 0,
+src/app/api/tenants/[tenantId]/pipeline-ready/route.ts:102:      console.log('[pipeline-ready] Not ready:', {
+src/app/api/tenants/[tenantId]/pipeline-ready/route.ts:106:        vectorCount,
+src/app/api/tenants/[tenantId]/pipeline-ready/route.ts:115:      vectorCount: vectorCount ?? 0,
+src/components/trial/TrialPlayground.tsx:72:        const res = await fetch(`/api/tenants/${effectiveTenantId}/pipeline-ready`, {
+src/lib/embeddings/vector-storage.ts:104:  async vadd(
+src/lib/embeddings/vector-storage.ts:121:    vectorCount: number;
+src/lib/embeddings/vector-storage.ts:137:      vectorCount: count || 0,
+src/lib/trial/pipeline-readiness.ts:4:  vectorCount: number;
+src/lib/trial/pipeline-readiness.ts:14:export function isPipelineReady({ ragStatus, lastJobStatus, vectorCount, minVectors }: PipelineReadinessInput) {
+src/lib/trial/pipeline-readiness.ts:16:  if (lastJobStatus === 'completed' && vectorCount >= Math.max(minVectors, 0)) return true;
+src/lib/trial/rag-pipeline.ts:422:      TrialLogger.info('Progressive readiness enabled', { tenantId, vectorCount: embeddings.length });
+tests/performance/embedding-pipeline.perf.ts:67:async function benchmarkStorage(vectorCount: number, batchSize: number) {
+tests/performance/embedding-pipeline.perf.ts:68:  console.log(`\n=== Storage Benchmark: ${vectorCount} vectors ===`);
+tests/performance/embedding-pipeline.perf.ts:83:  const vectors = Array.from({ length: vectorCount }, (_, i) => ({
+tests/performance/embedding-pipeline.perf.ts:96:    const throughput = vectorCount / (duration / 1000);
+tests/performance/embedding-pipeline.perf.ts:100:    console.log(`  Avg per batch: ${(duration / (vectorCount / batchSize)).toFixed(0)}ms`);
+tests/performance/embedding-pipeline.perf.ts:106:      vectorCount,
+tests/trial/pipeline-readiness.test.ts:7:      isPipelineReady({ ragStatus: 'ready', lastJobStatus: null, vectorCount: 0, minVectors: 10 })
+tests/trial/pipeline-readiness.test.ts:13:      isPipelineReady({ ragStatus: 'pending', lastJobStatus: 'processing', vectorCount: 12, minVectors: 10 })
+tests/trial/pipeline-readiness.test.ts:19:      isPipelineReady({ ragStatus: 'pending', lastJobStatus: 'completed', vectorCount: 1, minVectors: 10 })
+tests/trial/pipeline-readiness.test.ts:25:      isPipelineReady({ ragStatus: 'pending', lastJobStatus: 'processing', vectorCount: 0, minVectors: 5 })

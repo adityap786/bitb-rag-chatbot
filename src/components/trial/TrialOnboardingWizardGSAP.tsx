@@ -24,20 +24,20 @@ const STEPS = [
 export default function TrialOnboardingWizardGSAP() {
   const STORAGE_KEY = 'trial_onboarding_gsap_session_v1';
 
-    // Knowledge Base step state
-    const [kbSource, setKbSource] = useState<'manual' | 'upload' | 'crawl'>('manual');
-    const [kbFiles, setKbFiles] = useState<File[]>([]);
-    const [crawlUrls, setCrawlUrls] = useState('');
-    const [crawlDepth, setCrawlDepth] = useState(2);
+  // Knowledge Base step state
+  const [kbSource, setKbSource] = useState<'manual' | 'upload' | 'crawl'>('manual');
+  const [kbFiles, setKbFiles] = useState<File[]>([]);
+  const [crawlUrls, setCrawlUrls] = useState('');
+  const [crawlDepth, setCrawlDepth] = useState(2);
   // Show embed code only after button click
   const [showEmbed, setShowEmbed] = useState(false);
 
-    // File input handler
-    function handleKbFilesChange(e: React.ChangeEvent<HTMLInputElement>) {
-      if (e.target.files) {
-        setKbFiles(Array.from(e.target.files));
-      }
+  // File input handler
+  function handleKbFilesChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files) {
+      setKbFiles(Array.from(e.target.files));
     }
+  }
   const [step, setStep] = useState(1);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -301,6 +301,18 @@ export default function TrialOnboardingWizardGSAP() {
         return;
       }
 
+      if (kbSource === 'crawl' && !crawlUrls) {
+        setError('Please provide at least one website URL to crawl');
+        setLoading(false);
+        return;
+      }
+
+      if (kbSource === 'upload' && kbFiles.length === 0) {
+        setError('Please upload at least one document');
+        setLoading(false);
+        return;
+      }
+
       // Step 1a: Create trial account
       const trialStartRes = await fetch('/api/trial/start', {
         method: 'POST',
@@ -360,7 +372,7 @@ export default function TrialOnboardingWizardGSAP() {
           throw new Error(errData.error || 'Failed to crawl website');
         }
       }
-      
+
       // Submit manual KB if that's the source
       if (kbSource === 'manual') {
         const kbRes = await fetch('/api/trial/kb/manual', {
