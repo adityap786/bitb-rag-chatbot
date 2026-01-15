@@ -169,7 +169,7 @@
         "tailwindcss-animate": "^1.0.7",
         "three": "^0.181.2",
         "three-globe": "^2.45.0",
-        "undici": "^7.16.0",
+        "undici": "^7.18.2",
         "vaul": "^1.1.2",
         "yaml": "^2.8.1",
         "zod": "^4.1.13"
