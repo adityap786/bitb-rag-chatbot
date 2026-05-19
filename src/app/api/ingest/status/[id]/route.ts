@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { redis } from '@/lib/redis-client';
 
 export async function GET(
   request: any,
@@ -20,6 +21,18 @@ export async function GET(
         { error: 'Invalid job ID' },
         { status: 400 }
       );
+    }
+
+    const cacheKey = `ingest:status:${id}`;
+
+    // Try cache first
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        return NextResponse.json(JSON.parse(cached));
+      }
+    } catch (e) {
+      console.warn('Redis cache error:', e);
     }
 
     // Fetch job status from Supabase
@@ -55,6 +68,18 @@ export async function GET(
       completed_at: job.completed_at,
       index_path: job.index_path
     };
+
+
+
+    // Cache the response
+    const isTerminal = ['completed', 'failed'].includes(job.status);
+    const ttl = isTerminal ? 3600 : 3; // 1 hour for terminal, 3 seconds for active
+
+    try {
+      await redis.set(cacheKey, JSON.stringify(response), { ex: ttl });
+    } catch (e) {
+      console.warn('Redis set error:', e);
+    }
 
     return NextResponse.json(response);
 

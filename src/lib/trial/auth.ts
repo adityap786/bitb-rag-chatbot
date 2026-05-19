@@ -10,6 +10,10 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_ALGORITHM = 'HS256';
 const TOKEN_EXPIRY = '24h';
 
+// Security hardening: audience and issuer validation
+export const JWT_ISSUER = 'bitb.ltd';
+export const JWT_AUDIENCE = 'bitb-chatbot';
+
 /**
  * JWT token payload
  */
@@ -33,6 +37,8 @@ export function verifyToken(token: string): TokenPayload {
   try {
     const decoded = verify(token, JWT_SECRET as string, {
       algorithms: [JWT_ALGORITHM],
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
     });
 
     if (typeof decoded === 'object' && decoded !== null && 'tenantId' in decoded && 'type' in decoded) {

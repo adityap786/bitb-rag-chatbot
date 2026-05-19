@@ -10,7 +10,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import gsap from 'gsap';
-import PlatformDetector from '@/components/trial/PlatformDetector';
 import TrialPlayground from '@/components/trial/TrialPlayground';
 import MultiStepLoader from '@/components/trial/MultiStepLoader';
 
@@ -51,7 +50,6 @@ export default function TrialOnboardingWizardGSAP() {
   const [welcomeMessage, setWelcomeMessage] = useState('Hello! How can I help you today?');
   const [embedCode, setEmbedCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
   const [trialToken, setTrialToken] = useState('');
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [ingestionRunId, setIngestionRunId] = useState<string | null>(null);
@@ -83,9 +81,7 @@ export default function TrialOnboardingWizardGSAP() {
       if (typeof parsed?.crawlUrls === 'string') setCrawlUrls(parsed.crawlUrls);
       if (typeof parsed?.crawlDepth === 'number') setCrawlDepth(parsed.crawlDepth);
 
-      if (typeof parsed?.selectedPlatform === 'string' || parsed?.selectedPlatform === null) {
-        setSelectedPlatform(parsed.selectedPlatform);
-      }
+
       if (typeof parsed?.showEmbed === 'boolean') setShowEmbed(parsed.showEmbed);
 
       if (typeof parsed?.trialToken === 'string') setTrialToken(parsed.trialToken);
@@ -121,7 +117,6 @@ export default function TrialOnboardingWizardGSAP() {
         kbSource,
         crawlUrls,
         crawlDepth,
-        selectedPlatform,
         showEmbed,
         trialToken,
         tenantId,
@@ -148,7 +143,7 @@ export default function TrialOnboardingWizardGSAP() {
     kbSource,
     crawlUrls,
     crawlDepth,
-    selectedPlatform,
+
     showEmbed,
     trialToken,
     tenantId,
@@ -196,10 +191,7 @@ export default function TrialOnboardingWizardGSAP() {
       return;
     }
 
-    if (!selectedPlatform) {
-      setError('Please select a platform');
-      return;
-    }
+
 
     setLoading(true);
     try {
@@ -214,7 +206,6 @@ export default function TrialOnboardingWizardGSAP() {
           secondaryColor,
           tone: chatTone,
           welcomeMessage,
-          platform: selectedPlatform,
         }),
       });
 
@@ -477,8 +468,8 @@ export default function TrialOnboardingWizardGSAP() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label htmlFor="businessType" className="text-sm">Business Type</Label>
-                <Select value={businessType} onValueChange={setBusinessType}>
-                  <SelectTrigger id="businessType" name="businessType" className="bg-black text-white border-white/20"><SelectValue /></SelectTrigger>
+                <Select name="businessType" value={businessType} onValueChange={setBusinessType}>
+                  <SelectTrigger id="businessType" className="bg-black text-white border-white/20"><SelectValue /></SelectTrigger>
                   <SelectContent className="bg-black text-white">
                     <SelectItem value="service">Service</SelectItem>
                     <SelectItem value="ecommerce">E-commerce</SelectItem>
@@ -489,8 +480,8 @@ export default function TrialOnboardingWizardGSAP() {
               </div>
               <div>
                 <Label htmlFor="kbSource" className="text-sm mb-2">Knowledge Base Source</Label>
-                <Select value={kbSource} onValueChange={v => setKbSource(v as 'manual' | 'upload' | 'crawl')}>
-                  <SelectTrigger id="kbSource" name="kbSource" className="bg-black text-white border-white/20"><SelectValue placeholder="Select source" /></SelectTrigger>
+                <Select name="kbSource" value={kbSource} onValueChange={v => setKbSource(v as 'manual' | 'upload' | 'crawl')}>
+                  <SelectTrigger id="kbSource" className="bg-black text-white border-white/20"><SelectValue placeholder="Select source" /></SelectTrigger>
                   <SelectContent className="bg-black text-white">
                     <SelectItem value="manual">Manual Input</SelectItem>
                     <SelectItem value="upload">Document Upload</SelectItem>
@@ -549,7 +540,7 @@ export default function TrialOnboardingWizardGSAP() {
             </div>
             <div>
               <Label htmlFor="chatTone" className="text-sm">Chat Tone</Label>
-              <Select value={chatTone} onValueChange={setChatTone}>
+              <Select name="chatTone" value={chatTone} onValueChange={setChatTone}>
                 <SelectTrigger id="chatTone" className="bg-black text-white border-white/20"><SelectValue /></SelectTrigger>
                 <SelectContent className="bg-black text-white">
                   <SelectItem value="professional">Professional</SelectItem>
@@ -563,10 +554,8 @@ export default function TrialOnboardingWizardGSAP() {
               <Textarea id="welcomeMessage" value={welcomeMessage} onChange={e => setWelcomeMessage(e.target.value)} rows={2} className="bg-black text-white border-white/20" />
             </div>
 
-            <div className="mt-6 mb-3 text-white text-base font-semibold">Where is your website hosted?</div>
-            <PlatformDetector selectedPlatform={selectedPlatform} setSelectedPlatform={setSelectedPlatform} />
 
-            <Button type="submit" className="w-full bg-white text-black font-bold mt-6" disabled={!selectedPlatform || loading}>
+            <Button type="submit" className="w-full bg-white text-black font-bold mt-6" disabled={loading}>
               {loading ? 'Saving…' : 'Continue'}
             </Button>
           </form>

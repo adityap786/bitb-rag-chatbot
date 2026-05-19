@@ -35,7 +35,7 @@ export async function monitoredIngestionJob(
 
 function validateEnv() {
   const required = {
-    SUPABASE_URL: process.env.SUPABASE_URL,
+    SUPABASE_URL: process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL,
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
   };
 
@@ -134,7 +134,7 @@ export async function getSupabaseRetriever(tenantId: string, options?: {
   const keywordIndex = new SupabaseKeywordIndex({
     supabaseUrl: env.SUPABASE_URL,
     supabaseKey: env.SUPABASE_SERVICE_ROLE_KEY,
-    tableName: 'documents',
+    tableName: 'embeddings', // Fixed: use 'embeddings' table (documents table doesn't exist)
   });
 
   const pipeline = new RetrievalPipeline({

@@ -124,64 +124,112 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
       throw new ValidationError('Trial is not active');
     }
 
+    // Use enhanced crawler engine
+    const { crawlWebsite } = await import('@/lib/crawl/crawler-engine');
+
+    const crawlDepth = depth ?? 2; // Default to depth 2 for good coverage
+    const maxPages = Math.min(urls.length * 10, 50); // Allow 10 pages per URL, max 50
+
     const results: Array<{ url: string; kbId?: string; status: 'completed' | 'duplicate' | 'failed'; error?: string }> = [];
 
-    for (const url of urls) {
+    // Crawl each provided URL
+    for (const startUrl of urls) {
       try {
-        const text = await fetchPageText(url);
-        const rawText = sanitizeText(`Source URL: ${url}\n\n${text}`);
-        const contentHash = createHash('sha256').update(`${tenantId}|${url}|${rawText}`).digest('hex');
-
-        const { data: existing, error: checkError } = await supabase
-          .from('knowledge_base')
-          .select('kb_id')
-          .eq('tenant_id', tenantId)
-          .eq('content_hash', contentHash)
-          .single();
-
-        if (checkError && checkError.code !== 'PGRST116') {
-          throw new InternalError('Failed to check knowledge base', new Error(checkError.message));
-        }
-
-        if (existing?.kb_id) {
-          results.push({ url, kbId: existing.kb_id, status: 'duplicate' });
-          continue;
-        }
-
-        const { data: kb, error: insertError } = await supabase
-          .from('knowledge_base')
-          .insert({
-            tenant_id: tenantId,
-            source_type: 'crawl',
-            content_hash: contentHash,
-            raw_text: rawText,
-            metadata: { url, depth: depth ?? null },
-            processed_at: new Date().toISOString(),
-          })
-          .select('kb_id')
-          .single();
-
-        if (insertError || !kb) {
-          throw new InternalError('Failed to insert crawled content', new Error(insertError?.message || 'Unknown'));
-        }
-
-        TrialLogger.logModification('knowledge_base', 'create', kb.kb_id, tenantId, {
-          requestId,
-          sourceType: 'crawl',
-          url,
-          depth: depth ?? null,
+        const crawlSummary = await crawlWebsite(startUrl, {
+          maxDepth: crawlDepth,
+          maxPages: Math.ceil(maxPages / urls.length),
+          delayMs: 500,
+          timeout: 15000,
+          useSitemap: true,
+          respectRobots: true,
         });
 
-        results.push({ url, kbId: kb.kb_id, status: 'completed' });
+        TrialLogger.info('Crawl completed', {
+          requestId,
+          tenantId,
+          startUrl,
+          pagesSucceeded: crawlSummary.pagesSucceeded,
+          totalProducts: crawlSummary.totalProducts,
+          totalFaqs: crawlSummary.totalFaqs,
+          durationMs: crawlSummary.durationMs,
+        });
+
+        // Insert each successfully crawled page into KB
+        for (const crawlResult of crawlSummary.results) {
+          if (crawlResult.status !== 'success' || !crawlResult.formattedText) {
+            results.push({
+              url: crawlResult.url,
+              status: 'failed',
+              error: crawlResult.error || 'No content extracted',
+            });
+            continue;
+          }
+
+          const rawText = sanitizeText(crawlResult.formattedText);
+          const contentHash = createHash('sha256').update(`${tenantId}|${crawlResult.url}|${rawText}`).digest('hex');
+
+          // Check for duplicates
+          const { data: existing, error: checkError } = await supabase
+            .from('knowledge_base')
+            .select('kb_id')
+            .eq('tenant_id', tenantId)
+            .eq('content_hash', contentHash)
+            .single();
+
+          if (checkError && checkError.code !== 'PGRST116') {
+            throw new InternalError('Failed to check knowledge base', new Error(checkError.message));
+          }
+
+          if (existing?.kb_id) {
+            results.push({ url: crawlResult.url, kbId: existing.kb_id, status: 'duplicate' });
+            continue;
+          }
+
+          // Insert into KB with structured metadata
+          const { data: kb, error: insertError } = await supabase
+            .from('knowledge_base')
+            .insert({
+              tenant_id: tenantId,
+              source_type: 'crawl',
+              content_hash: contentHash,
+              raw_text: rawText,
+              metadata: {
+                url: crawlResult.url,
+                depth: crawlDepth,
+                extractedAt: new Date().toISOString(),
+                productsCount: crawlResult.extractedPage?.products.length || 0,
+                faqsCount: crawlResult.extractedPage?.faqs.length || 0,
+                hasContact: !!(crawlResult.extractedPage?.contact.email || crawlResult.extractedPage?.contact.phone),
+                title: crawlResult.extractedPage?.title,
+              },
+            })
+            .select('kb_id')
+            .single();
+
+          if (insertError || !kb) {
+            throw new InternalError('Failed to insert crawled content', new Error(insertError?.message || 'Unknown'));
+          }
+
+          TrialLogger.logModification('knowledge_base', 'create', kb.kb_id, tenantId, {
+            requestId,
+            sourceType: 'crawl',
+            url: crawlResult.url,
+            depth: crawlDepth,
+            productsCount: crawlResult.extractedPage?.products.length || 0,
+            faqsCount: crawlResult.extractedPage?.faqs.length || 0,
+          });
+
+          results.push({ url: crawlResult.url, kbId: kb.kb_id, status: 'completed' });
+        }
       } catch (err) {
         TrialLogger.warn('Crawl URL failed', {
           requestId,
           tenantId,
-          url,
+          url: startUrl,
           error: (err as Error).message,
         });
         results.push({
-          url,
+          url: startUrl,
           status: 'failed',
           error: process.env.NODE_ENV !== 'production' ? (err as Error).message : 'Failed to crawl URL',
         });

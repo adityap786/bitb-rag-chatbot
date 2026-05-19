@@ -20,9 +20,9 @@ export async function register() {
 
     try {
       // Initialize Redis rate limiter if configured
-      const hasRedis = process.env.REDIS_URL || 
-                      (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
-      
+      const hasRedis = process.env.REDIS_URL ||
+        (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
+
       if (hasRedis) {
         console.log('[Instrumentation] Initializing Redis rate limiter...');
         await initializeRedisRateLimiter();
@@ -36,6 +36,19 @@ export async function register() {
       await verifyDemoTenantHealth();
 
       // Add other initialization here (e.g., database connections, cache warmup)
+
+      // Server Warmup (Embedding Model)
+      const shouldWarmup = process.env.NODE_ENV === 'production' || process.env.WARMUP_EMBEDDING === 'true';
+
+      if (shouldWarmup) {
+        console.log('[Instrumentation] Warming up embedding model (this may take 10-20s)...');
+        const { LlamaIndexEmbeddingService } = await import('./src/lib/rag/llamaindex-embeddings');
+        // Blocking await to ensure readiness before accepting requests
+        await LlamaIndexEmbeddingService.getInstance().embed("warmup");
+        console.log('[Instrumentation] Embedding model warmed up');
+      } else {
+        console.log('[Instrumentation] Skipping embedding model warmup (Dev mode). Set WARMUP_EMBEDDING=true to enable.');
+      }
 
       console.log('[Instrumentation] Server services initialized successfully');
     } catch (error) {

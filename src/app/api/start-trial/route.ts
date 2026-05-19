@@ -12,12 +12,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { generateJWT } from '@/lib/jwt';
+import { rateLimit, RATE_LIMITS } from '@/middleware/rate-limit';
 
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 export async function POST(request: any, context: { params: Promise<{}> }) {
   try {
+    // 1. Rate Limiting (IP-based) - Use predefined strict trial start limit
+    const rateLimitRes = await rateLimit(request, RATE_LIMITS.trialStart);
+    if (rateLimitRes) return rateLimitRes;
+
     const body = await request.json();
     const {
       site_origin,
@@ -40,13 +45,28 @@ export async function POST(request: any, context: { params: Promise<{}> }) {
     // Generate tenant_id and trial_token
     const tenant_id = 'tn_' + randomBytes(16).toString('hex');
     const trial_token = 'tr_' + randomBytes(16).toString('hex');
-    
+
     // Calculate expiry (3 days from now)
     const created_at = new Date().toISOString();
     const expires_at = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
 
     // Create Supabase client
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Check for existing active trial with same email
+    const { data: existingTrial } = await supabase
+      .from('trials')
+      .select('trial_token, status')
+      .eq('admin_email', admin_email)
+      .eq('status', 'active')
+      .single();
+
+    if (existingTrial) {
+      return NextResponse.json(
+        { error: 'An active trial already exists for this email.' },
+        { status: 409 }
+      );
+    }
 
     // Set tenant context for RLS
     await supabase.rpc('set_tenant_context', { p_tenant_id: tenant_id });

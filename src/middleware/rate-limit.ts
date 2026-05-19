@@ -50,11 +50,11 @@ function getIdentifier(req: NextRequest | Request): string {
   // Try user ID from header
   const userId = req.headers.get('x-user-id');
   if (userId) return `user:${userId}`;
-  
+
   // Try API key
   const apiKey = req.headers.get('x-api-key');
   if (apiKey) return `api:${apiKey.substring(0, 10)}`; // Use prefix only
-  
+
   // Fall back to IP address
   const forwarded = req.headers.get('x-forwarded-for');
   const realIp = req.headers.get('x-real-ip');
@@ -63,7 +63,7 @@ function getIdentifier(req: NextRequest | Request): string {
     : realIp
       ? realIp.trim()
       : 'unknown';
-  
+
   return `ip:${ip}`;
 }
 
@@ -78,20 +78,20 @@ async function slidingWindowRateLimit(
 ): Promise<RateLimitResult> {
   const now = Date.now();
   const windowStart = now - config.windowSeconds * 1000;
-  
+
   try {
     // Remove old entries
     await redis.zremrangebyscore(key, 0, windowStart);
-    
+
     // Count current requests in window
     const count = await redis.zcard(key);
-    
+
     if (count >= config.maxRequests) {
       // Get oldest request timestamp for retry-after
       const oldest = await redis.zrange(key, 0, 0, 'WITHSCORES');
       const oldestTimestamp = oldest.length > 1 ? parseInt(oldest[1]) : now;
       const retryAfter = Math.ceil((oldestTimestamp + config.windowSeconds * 1000 - now) / 1000);
-      
+
       return {
         success: false,
         limit: config.maxRequests,
@@ -100,12 +100,12 @@ async function slidingWindowRateLimit(
         retryAfter: Math.max(retryAfter, 1)
       };
     }
-    
+
     // Add current request
     const requestId = `${now}:${Math.random()}`;
     await redis.zadd(key, now, requestId);
     await redis.expire(key, config.windowSeconds);
-    
+
     return {
       success: true,
       limit: config.maxRequests,
@@ -134,19 +134,19 @@ async function fixedWindowRateLimit(
   config: RateLimitConfig
 ): Promise<RateLimitResult> {
   const now = Date.now();
-  
+
   try {
     // Increment counter
     const current = await redis.incr(key);
-    
+
     // Set expiration on first request
     if (current === 1) {
       await redis.expire(key, config.windowSeconds);
     }
-    
+
     const ttl = await redis.ttl(key);
     const resetTime = now + ttl * 1000;
-    
+
     if (current > config.maxRequests) {
       return {
         success: false,
@@ -156,7 +156,7 @@ async function fixedWindowRateLimit(
         retryAfter: ttl
       };
     }
-    
+
     return {
       success: true,
       limit: config.maxRequests,
@@ -186,17 +186,17 @@ async function tokenBucketRateLimit(
 ): Promise<RateLimitResult> {
   const now = Date.now();
   const refillRate = config.maxRequests / config.windowSeconds; // tokens per second
-  
+
   try {
     const data = await redis.get(key);
     let tokens = config.maxRequests;
     let lastRefill = now;
-    
+
     if (data) {
       const parsed = JSON.parse(data);
       tokens = parsed.tokens;
       lastRefill = parsed.lastRefill;
-      
+
       // Refill tokens based on time elapsed
       const elapsed = (now - lastRefill) / 1000;
       tokens = Math.min(
@@ -204,10 +204,10 @@ async function tokenBucketRateLimit(
         tokens + elapsed * refillRate
       );
     }
-    
+
     if (tokens < 1) {
       const timeToRefill = Math.ceil((1 - tokens) / refillRate);
-      
+
       return {
         success: false,
         limit: config.maxRequests,
@@ -216,16 +216,16 @@ async function tokenBucketRateLimit(
         retryAfter: timeToRefill
       };
     }
-    
+
     // Consume one token
     tokens -= 1;
-    
+
     await redis.set(
       key,
       JSON.stringify({ tokens, lastRefill: now }),
       { ex: config.windowSeconds }
     );
-    
+
     return {
       success: true,
       limit: config.maxRequests,
@@ -259,9 +259,9 @@ export async function rateLimit(
     const redis = getRedisClient();
     const identifier = getIdentifier(req);
     const key = `${config.keyPrefix}:${identifier}`;
-    
+
     let result: RateLimitResult;
-    
+
     switch (config.strategy || 'sliding') {
       case 'sliding':
         result = await slidingWindowRateLimit(redis, key, config);
@@ -275,7 +275,7 @@ export async function rateLimit(
       default:
         result = await slidingWindowRateLimit(redis, key, config);
     }
-    
+
     if (!result.success) {
       return NextResponse.json(
         {
@@ -294,7 +294,7 @@ export async function rateLimit(
         }
       );
     }
-    
+
     // Add rate limit info to successful response (will be added by API route)
     // Store in request context for logging
     (req as any).rateLimitInfo = {
@@ -302,7 +302,7 @@ export async function rateLimit(
       remaining: result.remaining,
       reset: result.reset
     };
-    
+
     return null;
   } catch (error) {
     console.error('Rate limit middleware error:', error);
@@ -322,28 +322,28 @@ export const RATE_LIMITS = {
     keyPrefix: 'rl:booking',
     strategy: 'sliding' as const
   },
-  
+
   checkout: {
     maxRequests: 10,
     windowSeconds: 3600,
     keyPrefix: 'rl:checkout',
     strategy: 'sliding' as const
   },
-  
+
   metrics: {
     maxRequests: 10000,
     windowSeconds: 3600,
     keyPrefix: 'rl:metrics',
     strategy: 'token-bucket' as const
   },
-  
+
   scoring: {
     maxRequests: 1000,
     windowSeconds: 3600,
     keyPrefix: 'rl:scoring',
     strategy: 'sliding' as const
   },
-  
+
   // Authentication
   login: {
     maxRequests: 5,
@@ -351,14 +351,14 @@ export const RATE_LIMITS = {
     keyPrefix: 'rl:login',
     strategy: 'fixed' as const
   },
-  
+
   signup: {
     maxRequests: 3,
     windowSeconds: 3600,
     keyPrefix: 'rl:signup',
     strategy: 'fixed' as const
   },
-  
+
   // General API
   general: {
     maxRequests: 1000,
@@ -366,7 +366,7 @@ export const RATE_LIMITS = {
     keyPrefix: 'rl:api',
     strategy: 'sliding' as const
   },
-  
+
   // Widget chat
   chat: {
     maxRequests: 100,
@@ -392,8 +392,9 @@ export const RATE_LIMITS = {
   },
 
   // Trial start should be stricter than general trial calls
+  // In development mode, relax limits significantly to allow rapid testing
   trialStart: {
-    maxRequests: 5,
+    maxRequests: process.env.NODE_ENV === 'development' ? 1000 : 50,
     windowSeconds: 60,
     keyPrefix: 'rl:trial_start',
     strategy: 'fixed' as const
@@ -421,6 +422,22 @@ export const RATE_LIMITS = {
     windowSeconds: 60,
     keyPrefix: 'rl:tenant_ingest_status',
     strategy: 'token-bucket' as const
+  },
+
+  // Edge IP rate limiting (enforced by middleware.ts)
+  edgeIP: {
+    maxRequests: 100,
+    windowSeconds: 60,
+    keyPrefix: 'rl:edge_ip',
+    strategy: 'sliding' as const
+  },
+
+  // Per-bot compound rate limit (IP + tenant + chatbot)
+  botCompound: {
+    maxRequests: 50,
+    windowSeconds: 60,
+    keyPrefix: 'rl:bot_compound',
+    strategy: 'sliding' as const
   }
 };
 
@@ -436,14 +453,14 @@ export async function checkRateLimit(
     const redis = getRedisClient();
     const identifier = getIdentifier(req);
     const key = `${config.keyPrefix}:${identifier}`;
-    
+
     const now = Date.now();
-    
+
     if (config.strategy === 'sliding') {
       const windowStart = now - config.windowSeconds * 1000;
       await redis.zremrangebyscore(key, 0, windowStart);
       const count = await redis.zcard(key);
-      
+
       return {
         success: count < config.maxRequests,
         limit: config.maxRequests,
@@ -454,7 +471,7 @@ export async function checkRateLimit(
       // For fixed window, just check current count
       const current = await redis.get(key);
       const count = current ? parseInt(current) : 0;
-      
+
       return {
         success: count < config.maxRequests,
         limit: config.maxRequests,

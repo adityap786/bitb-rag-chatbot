@@ -1,7 +1,26 @@
 import axios from 'axios';
 import { ExternalServiceError } from '../trial/errors';
 import { EMBEDDING_CONFIG } from './config';
-import { metrics } from '../telemetry';
+// import { metrics } from '../telemetry'; // Deprecated
+import { ragEmbeddingBatchLatency, ragVectorsGenerated } from '../monitoring/metrics';
+import { circuitBreaker, ConsecutiveBreaker, handleAll, wrap, retry, ExponentialBackoff } from 'cockatiel';
+import { logger } from '../observability/logger';
+
+// Circuit Breaker & Retry Policies
+// Break after 5 consecutive failures, reset after 10 seconds
+const breakerPolicy = circuitBreaker(handleAll, {
+  halfOpenAfter: 10000,
+  breaker: new ConsecutiveBreaker(5),
+});
+
+// Exponential backoff retry: 3 attempts, starting at 500ms
+const retryPolicy = retry(handleAll, {
+  maxAttempts: 3,
+  backoff: new ExponentialBackoff({ initialDelay: 500 }),
+});
+
+// Combined policy: Retry first, then check breaker
+const resiliencePolicy = wrap(retryPolicy, breakerPolicy);
 
 /**
  * Quantize fp32 embeddings to int8
@@ -31,24 +50,6 @@ export function dequantizeFromInt8(quantized: Int8Array): number[] {
 }
 
 /**
- * Convert fp32 array to Buffer for binary transport
- */
-export function fp32ToBuffer(embedding: number[]): Buffer {
-  const buffer = Buffer.allocUnsafe(embedding.length * 4);
-  for (let i = 0; i < embedding.length; i++) {
-    buffer.writeFloatLE(embedding[i], i * 4);
-  }
-  return buffer;
-}
-
-/**
- * Convert int8 array to Buffer
- */
-export function int8ToBuffer(embedding: Int8Array): Buffer {
-  return Buffer.from(embedding);
-}
-
-/**
  * Batch embeddings into chunks for API calls
  */
 function batchTexts<T>(items: T[], batchSize: number): T[][] {
@@ -60,125 +61,91 @@ function batchTexts<T>(items: T[], batchSize: number): T[][] {
 }
 
 /**
- * Retry wrapper with exponential backoff
- */
-async function retryWithBackoff<T>(
-  fn: () => Promise<T>,
-  maxRetries: number = EMBEDDING_CONFIG.MAX_RETRIES,
-  delayMs: number = EMBEDDING_CONFIG.RETRY_DELAY_MS
-): Promise<T> {
-  let lastError: Error | null = null;
-  
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (error: any) {
-      lastError = error;
-      if (attempt < maxRetries) {
-        const backoffDelay = delayMs * Math.pow(2, attempt);
-        await new Promise((resolve) => setTimeout(resolve, backoffDelay));
-      }
-    }
-  }
-  
-  throw lastError;
-}
-
-/**
- * Generate embeddings from a single batch
+ * Generate embeddings from a single batch with circuit breaker
  */
 async function generateEmbeddingBatch(texts: string[]): Promise<number[][]> {
   const startTime = Date.now();
-  
-  try {
-    const response = await axios.post(
-      `${EMBEDDING_CONFIG.SERVICE_URL}/embed-batch`,
-      { texts },
-      { timeout: EMBEDDING_CONFIG.TIMEOUT_MS }
-    );
 
-    if (!Array.isArray(response.data.embeddings)) {
-      throw new Error('Invalid embedding response format');
-    }
+  return resiliencePolicy.execute(async (context: { attempt: number }) => {
+    const isRetry = context.attempt > 0;
+    if (isRetry) logger.warn('Retrying embedding generation batch...');
 
-    const duration = Date.now() - startTime;
-    metrics.timing('embeddings.batch.duration', duration);
-    metrics.counter('embeddings.batch.success', 1);
-    metrics.counter('embedding.vectors.generated', texts.length);
-    
-    return response.data.embeddings;
-  } catch (error: any) {
-    if (error.code === 'ECONNREFUSED' || error.code === 'ECONNRESET') {
-      throw new Error(
-        `Embedding service not running on ${EMBEDDING_CONFIG.SERVICE_URL}. ` +
-        `Please start it with: cd services/bge_embedding_service && python main.py`
+    try {
+      const response = await axios.post(
+        `${EMBEDDING_CONFIG.SERVICE_URL}/embed-batch`,
+        { texts },
+        { timeout: EMBEDDING_CONFIG.TIMEOUT_MS }
       );
+
+      if (!Array.isArray(response.data.embeddings)) {
+        throw new Error('Invalid embedding response format');
+      }
+
+      const duration = Date.now() - startTime;
+      ragEmbeddingBatchLatency.observe({ model: 'default', batch_size: String(texts.length) }, duration / 1000);
+      ragVectorsGenerated.inc({ model: 'default', quantization: 'fp32' }, texts.length);
+
+      return response.data.embeddings;
+    } catch (error: any) {
+      if (error.code === 'ECONNREFUSED' || error.code === 'ECONNRESET') {
+        // Circuit breaker will catch this
+        throw new Error(`Embedding Service unavailable: ${error.message}`);
+      }
+      throw error;
     }
-    metrics.counter('embedding.batch.error', 1);
-    throw new ExternalServiceError('Embedding Service', error.message);
-  }
+  });
 }
 
 /**
  * Generate embeddings with batching and parallelization
- * 
- * @param texts - Array of text strings to embed
- * @param options - Configuration overrides
- * @returns Array of embeddings (fp32 or quantized based on config)
+ * Uses Promise.allSettled for reliability
  */
 export async function generateEmbeddingsBatched(
   texts: string[],
   options?: {
     batchSize?: number;
     maxParallel?: number;
-    quantize?: boolean;
+    quantize?: boolean; // Defaults to FALSE (fp32) for safety unless explicitly requested
   }
 ): Promise<number[][] | Int8Array[]> {
   if (texts.length === 0) return [];
 
   const batchSize = options?.batchSize ?? EMBEDDING_CONFIG.BATCH_SIZE;
   const maxParallel = options?.maxParallel ?? EMBEDDING_CONFIG.MAX_PARALLEL;
-  const shouldQuantize = options?.quantize ?? (EMBEDDING_CONFIG.QUANTIZATION === 'int8');
+  const shouldQuantize = options?.quantize ?? false;
 
-  const startTime = Date.now();
   const batches = batchTexts(texts, batchSize);
 
-  metrics.counter('embedding.request.started', 1, {
-    totalTexts: texts.length.toString(),
-    numBatches: batches.length.toString(),
-  });
+  const allResults: number[][] = [];
+  // const errors: Error[] = [];
 
   try {
     // Process batches in parallel (up to maxParallel)
-    const results: number[][] = [];
-    
     for (let i = 0; i < batches.length; i += maxParallel) {
       const parallelBatches = batches.slice(i, i + maxParallel);
-      const batchPromises = parallelBatches.map((batch) =>
-        retryWithBackoff(() => generateEmbeddingBatch(batch))
-      );
-      
-      const batchResults = await Promise.all(batchPromises);
-      results.push(...batchResults.flat());
-    }
 
-    const totalDuration = Date.now() - startTime;
-    metrics.timing('embedding.request.total', totalDuration, {
-      totalTexts: texts.length.toString(),
-      throughput: (texts.length / (totalDuration / 1000)).toFixed(2),
-    });
+      const results = await Promise.allSettled(
+        parallelBatches.map(batch => generateEmbeddingBatch(batch))
+      );
+
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          allResults.push(...result.value);
+        } else {
+          logger.error('Embedding batch failed', { error: result.reason });
+          throw result.reason;
+        }
+      }
+    }
 
     // Quantize if configured
     if (shouldQuantize) {
-      metrics.counter('embedding.quantization.applied', texts.length);
-      return quantizeToInt8(results);
+      ragVectorsGenerated.inc({ model: 'default', quantization: 'int8' }, texts.length);
+      return quantizeToInt8(allResults);
     }
 
-    return results;
+    return allResults;
   } catch (error: any) {
-    metrics.error('embedding.request.failed', error, {
-      totalTexts: texts.length.toString(),
-    });
     throw error;
   }
 }
@@ -188,11 +155,11 @@ export async function generateEmbeddingsBatched(
  */
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   const result = await generateEmbeddingsBatched(texts);
-  
+
   // If quantized, we need to dequantize for legacy compatibility
   if (result.length > 0 && result[0] instanceof Int8Array) {
     return (result as Int8Array[]).map(dequantizeFromInt8);
   }
-  
+
   return result as number[][];
 }

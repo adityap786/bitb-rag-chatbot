@@ -1,7 +1,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { EMBEDDING_CONFIG, calculateVectorMemory } from './config';
-import { fp32ToBuffer, int8ToBuffer } from './batched-generator';
-import { metrics } from '../telemetry';
+// import { metrics } from '../telemetry'; // Deprecated
+import { ragVectorStorageBatchLatency, ragVectorStorageTotalLatency } from '../monitoring/metrics';
 
 /**
  * Redis-style vector storage adapter for Supabase
@@ -38,11 +38,12 @@ export class VectorStorageAdapter {
 
     const startTime = Date.now();
     const memoryStats = calculateVectorMemory(vectors.length, this.quantization);
+    const tenantId = vectors[0].tenant_id;
 
-    metrics.counter('vector.storage.started', vectors.length, {
+    /* metrics.counter('vector.storage.started', vectors.length, {
       quantization: this.quantization,
       batchSize: batchSize.toString(),
-    });
+    }); */
 
     try {
       // Process in batches
@@ -74,25 +75,19 @@ export class VectorStorageAdapter {
         }
 
         const batchDuration = Date.now() - batchStartTime;
-        metrics.timing('vector.storage.batch', batchDuration, {
-          batchSize: batch.length.toString(),
-        });
+        ragVectorStorageBatchLatency.observe({ tenant_id: tenantId }, batchDuration / 1000);
       }
 
       const totalDuration = Date.now() - startTime;
       const throughput = vectors.length / (totalDuration / 1000);
 
-      metrics.timing('vector.storage.total', totalDuration, {
-        totalVectors: vectors.length.toString(),
-        throughputPerSec: throughput.toFixed(2),
-        memoryMB: memoryStats.totalMB,
-      });
+      ragVectorStorageTotalLatency.observe({ tenant_id: tenantId }, totalDuration / 1000);
 
       console.log(`[VectorStorage] Stored ${vectors.length} vectors in ${totalDuration}ms (${throughput.toFixed(2)}/sec)`);
     } catch (error: any) {
-      metrics.error('vector.storage.failed', error, {
+      /* metrics.error('vector.storage.failed', error, {
         totalVectors: vectors.length.toString(),
-      });
+      }); */
       throw error;
     }
   }
@@ -149,6 +144,8 @@ export function createVectorStorage(
   supabaseKey: string,
   quantization?: 'int8' | 'fp32'
 ): VectorStorageAdapter {
+  const createClientFn = require('@supabase/supabase-js').createClient; // Lazy require if import fails? No, import is fine.
+  // Actually line 1 imports createClient.
   const client = createClient(supabaseUrl, supabaseKey);
   return new VectorStorageAdapter(client, quantization);
 }

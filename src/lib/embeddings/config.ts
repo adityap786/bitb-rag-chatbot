@@ -40,7 +40,7 @@ export const EMBEDDING_CONFIG = {
   QUANTIZATION: (process.env.EMBEDDING_QUANTIZATION || 'int8') as 'int8' | 'fp32',
 
   // Service endpoint
-  SERVICE_URL: process.env.BGE_EMBEDDING_SERVICE_URL || 'http://localhost:8000',
+  SERVICE_URL: process.env.BGE_EMBEDDING_SERVICE_URL || 'http://localhost:3000/api',
 
   // Timeout and retry
   TIMEOUT_MS: 30000,
@@ -55,7 +55,7 @@ export function calculateVectorMemory(numVectors: number, quantization: 'int8' |
   const bytesPerDim = quantization === 'int8' ? 1 : 4;
   const bytesPerVector = EMBEDDING_CONFIG.DIM * bytesPerDim;
   const totalBytes = numVectors * bytesPerVector;
-  
+
   return {
     bytesPerVector,
     totalBytes,
@@ -77,7 +77,7 @@ export const BENCHMARK_DATA = {
     bytesPerVector: 3072,
     description: '3072 bytes per vector (4 bytes per dim)',
   },
-  
+
   // Example volumes
   volumes: {
     '5k': { vectors: 5000, int8MB: 3.7, fp32MB: 14.6 },

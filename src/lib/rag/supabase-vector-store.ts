@@ -67,12 +67,12 @@ export class SupabaseVectorStore implements VectorStore {
       if (explicit768) {
         // Caller already produced a 768-dim vector
         row.embedding_768 = explicit768;
-      // ...existing code...
+        // ...existing code...
       } else if (embeddingVal) {
         // Heuristic: route by vector length or feature-flag
         if (embeddingVal.length === 768 || prefer768) {
           row.embedding_768 = embeddingVal;
-        // ...existing code...
+          // ...existing code...
         } else {
           // Unknown dimension: log and prefer not to write into legacy column to avoid errors
           logger.warn('SupabaseVectorStore: ignoring embedding with unknown dims', { id, dims: embeddingVal.length });
@@ -112,44 +112,37 @@ export class SupabaseVectorStore implements VectorStore {
     try {
       // Preferred: call the DB-side RPC that uses pgvector for fast ANN search
       const prefer768 = process.env.USE_EMBEDDING_768 === 'true';
-      // Always use 768-dim RPC
-      const rpcName = 'match_embeddings_by_tenant_768';
+      // Use the fixed match_embeddings_by_tenant function
+      const rpcName = 'match_embeddings_by_tenant';
 
-      let rpcResult: any = null;
+      let rpcResult: { data: any; error: any } | null = null;
       try {
         rpcResult = await timeAsync('vector_store.query.rpc', async () => {
           return await this.client.rpc(rpcName, {
             query_embedding: queryEmbedding,
             match_count: topK,
-            match_tenant_id: tenantId,
+            p_tenant_id: tenantId,
           });
         }, { rpc: rpcName });
+
+        // Check for Supabase error in response
+        if (rpcResult?.error) {
+          const errMsg = rpcResult.error.message || JSON.stringify(rpcResult.error);
+          logger.warn('match_embeddings_by_tenant RPC returned error', { error: errMsg, hint: rpcResult.error.hint });
+          throw new Error(`RPC error: ${errMsg}`);
+        }
+
         metrics.incr('vector_store.query.rpc_success', 1, { rpc: rpcName });
+        logger.debug('RPC query successful', { rpc: rpcName, resultCount: rpcResult?.data?.length ?? 0 });
+
       } catch (rpcErr) {
         metrics.incr('vector_store.query.rpc_error', 1, { rpc: rpcName });
-        logger.warn('RPC call failed - attempting fallback RPC', { rpcName, err: (rpcErr as Error).message });
+        const errMsg = rpcErr instanceof Error ? rpcErr.message : JSON.stringify(rpcErr);
+        logger.warn('RPC call failed - falling back to client-side scan', { rpcName, err: errMsg });
+        throw rpcErr instanceof Error ? rpcErr : new Error(errMsg);
       }
 
-      // If RPC returned an error or no data, try the legacy RPC as a fallback
-      if (!rpcResult || rpcResult.error) {
-        try {
-          const { data, error } = await this.client.rpc('match_embeddings_by_tenant', {
-            query_embedding: queryEmbedding,
-            match_count: topK,
-            match_tenant_id: tenantId,
-          });
-          if (error) {
-            logger.warn('Legacy match_embeddings_by_tenant RPC returned error', { error: error.message });
-            throw error;
-          }
-          return (data as any[]) ?? [];
-        } catch (legacyErr) {
-          logger.warn('Both RPCs failed; falling back to client-side scan', { err: (legacyErr as Error).message });
-          throw legacyErr;
-        }
-      }
-
-      return (rpcResult.data as any[]) ?? [];
+      return (rpcResult?.data as any[]) ?? [];
     } catch (rpcErr) {
       // Fallback: scan tenant rows and compute naive similarity (not recommended for prod)
       logger.debug('Falling back to client-side nearest-neighbor scan', { err: (rpcErr as Error).message });

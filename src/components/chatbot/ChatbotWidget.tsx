@@ -23,6 +23,7 @@ import { FinancialWidgetExtensions } from "@/components/chatbot/financial/Financ
 import { RealEstateWidgetExtensions } from "@/components/chatbot/realestate/RealEstateWidgetExtensions";
 import { EcommerceWidgetExtensions } from "@/components/chatbot/ecommerce/EcommerceWidgetExtensions";
 import { BookingWidgetExtensions } from "@/components/chatbot/booking/BookingWidgetExtensions";
+import { sanitizeCitationMarkers } from "@/lib/rag/sanitize-response";
 
 const STORAGE_KEYS = {
   CONFIG: "bitb-config",
@@ -86,7 +87,7 @@ function useAudioGreeting() {
         sendVoiceEvent("fallback_tts_error", { error: String(err) });
       };
       // Stop any in-progress synths and speak
-      try { synth.cancel(); } catch {}
+      try { synth.cancel(); } catch { }
       synth.speak(utter);
       setIsPlaying(true);
       sendVoiceEvent("fallback_tts", { source: "speechSynthesis" });
@@ -182,7 +183,7 @@ function useAudioGreeting() {
     setIsMuted(true);
     try {
       localStorage.setItem(STORAGE_KEYS.VOICE_MUTED, "true");
-    } catch (e) {}
+    } catch (e) { }
     if (audioRef.current) audioRef.current.volume = 0;
   };
 
@@ -190,7 +191,7 @@ function useAudioGreeting() {
     setIsMuted(false);
     try {
       localStorage.removeItem(STORAGE_KEYS.VOICE_MUTED);
-    } catch (e) {}
+    } catch (e) { }
     if (audioRef.current) audioRef.current.volume = 1;
   };
 
@@ -214,7 +215,7 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
   const [activeLanguage, setActiveLanguage] = useState<"en" | "hi" | "hinglish">("en");
   // Remove duplicate greeting/mute state, handled by useGoogleTTSGreeting
   const [shouldStickToBottom, setShouldStickToBottom] = useState(true);
-  
+
   // Batch mode state
   const [chatMode, setChatMode] = useState<'single' | 'batch'>('single');
   const [batchResults, setBatchResults] = useState<any>(null);
@@ -305,6 +306,24 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
   useEffect(() => {
     setMessages([]); // Clear messages on mount (refresh)
   }, []);
+
+  // Listen for branding updates from Onboarding flow via BroadcastChannel
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined') return;
+
+    const bc = new BroadcastChannel('bitb_branding_update');
+    bc.onmessage = (event) => {
+      if (event.data?.type === 'branding_updated') {
+        setConfig((prev) => ({
+          ...prev,
+          brandColor: event.data.primaryColor || prev.brandColor,
+          tone: event.data.chatTone || prev.tone,
+        }));
+      }
+    };
+
+    return () => bc.close();
+  }, []);
   // Initialize with welcome message when user opens the widget
   useEffect(() => {
     if (messages.length === 0 && isOpen) {
@@ -321,8 +340,8 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
           role: "assistant",
           timestamp: new Date(),
           language: activeLanguage,
-          suggested_replies: previewMode 
-            ? ["Tell me about Service Desk", "What does Commerce Assist cover?", "Explain Enterprise Command"] 
+          suggested_replies: previewMode
+            ? ["Tell me about Service Desk", "What does Commerce Assist cover?", "Explain Enterprise Command"]
             : ["Service plan features", "E-commerce automations", "Enterprise security"],
         }
       ]);
@@ -362,7 +381,7 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
     setMessages((prev) => [...prev, userMessage]);
     setInputValue("");
     setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 500));
+    scrollToBottom(); // Ensure user message is visible immediately
     try {
       let botResponse: ChatMessage;
       if (previewMode) {
@@ -421,7 +440,7 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
                   if (line.startsWith("data: ")) {
                     try {
                       const { token, partial: newPartial, metadata } = JSON.parse(line.slice(6));
-                      partial = newPartial;
+                      partial = sanitizeCitationMarkers(newPartial);
                       setMessages((prev) => {
                         const last = prev[prev.length - 1];
                         if (last && last.role === "assistant") {
@@ -431,7 +450,7 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
                           return [...prev, { id: Date.now().toString(), content: partial, role: "assistant", timestamp: new Date(), language: activeLanguage, metadata }];
                         }
                       });
-                    } catch {}
+                    } catch { }
                   }
                 });
               }
@@ -441,7 +460,7 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
             const data = await response.json();
             botResponse = {
               id: (Date.now() + 1).toString(),
-              content: data.reply,
+              content: sanitizeCitationMarkers(data.reply),
               role: "assistant",
               timestamp: new Date(),
               language: activeLanguage,
@@ -473,13 +492,13 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
 
   const generateSuggestedReplies = (input: string, isPreview: boolean): string[] => {
     if (!config.enableSuggestedReplies) return [];
-    
+
     if (!isPreview) {
       return ["Service plan features", "E-commerce automations", "Enterprise security"];
     }
 
     const lowerInput = input.toLowerCase();
-    
+
     if (lowerInput.includes("service") || lowerInput.includes("agency") || lowerInput.includes("consult")) {
       return ["What is in Service Desk?", "How fast is onboarding?", "Show me use cases"];
     }
@@ -495,7 +514,7 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
     if (lowerInput.includes("trial") || lowerInput.includes("demo")) {
       return ["Start trial", "Ingestion limits", "Embed instructions"];
     }
-    
+
     return ["Service Desk overview", "Commerce Assist details", "Enterprise Command"];
   };
 
@@ -646,15 +665,14 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
       >
         {isOpen && (
           <div
-            className={`mb-4 flex flex-col bg-black rounded-2xl shadow-2xl border border-zinc-800 overflow-hidden transition-all duration-300 ease-out ${
-              isMinimized 
-                ? "h-16 w-80 sm:w-96" 
-                : config.layout === "compact" 
-                  ? "h-[min(400px,80vh)] w-80 sm:w-96 max-w-[calc(100vw-2rem)]" 
-                  : config.layout === "expanded" 
-                    ? "h-[min(600px,90vh)] w-[90vw] sm:w-[500px] max-w-[calc(100vw-2rem)]" 
-                    : "h-[min(500px,85vh)] w-[90vw] sm:w-96 max-w-[calc(100vw-2rem)]"
-            }`}
+            className={`mb-4 flex flex-col bg-black rounded-2xl shadow-2xl border border-zinc-800 overflow-hidden transition-all duration-300 ease-out ${isMinimized
+              ? "h-16 w-80 sm:w-96"
+              : config.layout === "compact"
+                ? "h-[min(400px,80vh)] w-80 sm:w-96 max-w-[calc(100vw-2rem)]"
+                : config.layout === "expanded"
+                  ? "h-[min(600px,90vh)] w-[90vw] sm:w-[500px] max-w-[calc(100vw-2rem)]"
+                  : "h-[min(500px,85vh)] w-[90vw] sm:w-96 max-w-[calc(100vw-2rem)]"
+              }`}
             style={{
               transformOrigin: "bottom right",
               animation: "slideIn 0.28s cubic-bezier(0.2, 0.9, 0.2, 1)"
@@ -662,15 +680,15 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
           >
             {/* Sticky Header */}
             <div className="flex items-center justify-between p-3 sm:p-4 border-b border-zinc-800 bg-black shrink-0">
-                <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                 <div style={{ position: 'relative', zIndex: 10 }}>
-                  <img 
-                    src="/bitb-logo.webp" 
-                    alt="Bits & Bytes Logo" 
-                    className="h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-white object-contain shrink-0 border border-white" 
-                    onError={(e) => { 
-                      e.currentTarget.src='/bitb-logo-temp.png'; 
-                      e.currentTarget.alt='Logo not found'; 
+                  <img
+                    src="/bitb-logo.webp"
+                    alt="Bits & Bytes Logo"
+                    className="h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-white object-contain shrink-0 border border-white"
+                    onError={(e) => {
+                      e.currentTarget.src = '/bitb-logo-temp.png';
+                      e.currentTarget.alt = 'Logo not found';
                     }}
                   />
                 </div>
@@ -700,7 +718,7 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 text-white hover:bg-white/10"
-                        onClick={() => greeting.isMuted ? greeting.unmute() : greeting.mute()}
+                      onClick={() => greeting.isMuted ? greeting.unmute() : greeting.mute()}
                       aria-pressed={greeting.isMuted}
                       aria-label={greeting.isMuted ? "Unmute voice" : "Mute voice"}
                     >
@@ -808,11 +826,10 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
                         >
                           <div className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                             <div
-                              className={`max-w-[85%] rounded-2xl px-4 py-2 transition-transform duration-200 will-change-transform ${
-                                msg.role === "user"
-                                  ? "bg-zinc-800 text-white"
-                                  : "bg-zinc-900 text-white"
-                              }`}
+                              className={`max-w-[85%] rounded-2xl px-4 py-2 transition-transform duration-200 will-change-transform ${msg.role === "user"
+                                ? "bg-zinc-800 text-white"
+                                : "bg-zinc-900 text-white"
+                                }`}
                             >
                               <ReactMarkdown
                                 remarkPlugins={[remarkGfm]}
@@ -912,23 +929,23 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
                       <FinancialWidgetExtensions onSendMessage={handleSendMessage} tenantId={sessionId} />
                     )}
                     {config.industry === 'real_estate' && (
-                      <RealEstateWidgetExtensions 
-                        onSendMessage={handleSendMessage} 
-                        tenantId={sessionId} 
+                      <RealEstateWidgetExtensions
+                        onSendMessage={handleSendMessage}
+                        tenantId={sessionId}
                         lastMessageMetadata={messages[messages.length - 1]?.metadata}
                       />
                     )}
                     {config.industry === 'ecommerce' && (
-                      <EcommerceWidgetExtensions 
-                        onSendMessage={handleSendMessage} 
-                        tenantId={sessionId} 
+                      <EcommerceWidgetExtensions
+                        onSendMessage={handleSendMessage}
+                        tenantId={sessionId}
                         lastMessageMetadata={messages[messages.length - 1]?.metadata}
                       />
                     )}
                     {config.enableBooking && (
-                      <BookingWidgetExtensions 
-                        onSendMessage={handleSendMessage} 
-                        tenantId={sessionId} 
+                      <BookingWidgetExtensions
+                        onSendMessage={handleSendMessage}
+                        tenantId={sessionId}
                         lastMessageMetadata={messages[messages.length - 1]?.metadata}
                       />
                     )}
@@ -951,15 +968,15 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
                 <div className="border-t border-zinc-800 bg-black shrink-0">
                   <Tabs value={chatMode} onValueChange={(v) => setChatMode(v as 'single' | 'batch')} className="w-full">
                     <TabsList className="w-full justify-start border-b border-zinc-800 bg-black rounded-none h-auto p-0">
-                      <TabsTrigger 
-                        value="single" 
+                      <TabsTrigger
+                        value="single"
                         className="flex-1 rounded-none data-[state=active]:bg-zinc-900 data-[state=active]:border-b-2 data-[state=active]:border-white h-10"
                       >
                         <MessageSquare className="h-4 w-4 mr-2" />
                         Single
                       </TabsTrigger>
-                      <TabsTrigger 
-                        value="batch" 
+                      <TabsTrigger
+                        value="batch"
                         className="flex-1 rounded-none data-[state=active]:bg-zinc-900 data-[state=active]:border-b-2 data-[state=active]:border-white h-10"
                       >
                         <List className="h-4 w-4 mr-2" />
@@ -999,28 +1016,28 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
 
                     <TabsContent value="batch" className="p-3 sm:p-4 m-0">
                       {batchProgress ? (
-                        <BatchProgress 
+                        <BatchProgress
                           currentQuery={batchProgress.current}
                           totalQueries={batchProgress.total}
                           currentQueryText={batchProgress.query}
                         />
                       ) : batchResults ? (
-                        <BatchResults 
+                        <BatchResults
                           results={batchResults.results}
                           totalTokens={batchResults.totalTokens}
                           totalLatencyMs={batchResults.totalLatencyMs}
                           aggregated={batchResults.aggregated}
                         />
                       ) : (
-                        <BatchQueryInput 
+                        <BatchQueryInput
                           onSubmit={handleBatchSubmit}
                           isProcessing={isLoading}
                           maxQueries={10}
                         />
                       )}
                       {batchResults && !isLoading && (
-                        <Button 
-                          variant="outline" 
+                        <Button
+                          variant="outline"
                           className="w-full mt-4"
                           onClick={() => setBatchResults(null)}
                         >
@@ -1037,13 +1054,13 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
 
         {!isOpen && (
           <Tooltip>
-              <TooltipTrigger asChild>
+            <TooltipTrigger asChild>
               <Button
                 onClick={() => {
                   setIsOpen(true);
                   try {
                     // Trigger playback from the user's click gesture
-                      greeting.playGreeting({ trigger: 'open' });
+                    greeting.playGreeting({ trigger: 'open' });
                     localStorage.setItem(GREETED_KEY, 'true');
                   } catch (e) {
                     // ignore
@@ -1055,7 +1072,7 @@ export const ChatbotWidget = ({ previewMode = false }: { previewMode?: boolean }
                     try {
                       greeting.playGreeting({ trigger: 'open' });
                       localStorage.setItem(GREETED_KEY, 'true');
-                    } catch (err) {}
+                    } catch (err) { }
                   }
                 }}
                 size="icon"

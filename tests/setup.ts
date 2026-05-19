@@ -49,23 +49,26 @@ import { vi } from 'vitest';
 // Supabase on maintenance or offline should not block tests
 // ========================================================
 vi.mock('@supabase/supabase-js', () => ({
-  createClient: vi.fn(() => ({
-    rpc: vi.fn().mockImplementation((fn: string) => {
-      if (fn === 'set_tenant_context') return Promise.resolve({ error: null });
-      if (fn === 'match_embeddings_by_tenant') return Promise.resolve({ data: [], error: null });
-      return Promise.resolve({ error: null });
-    }),
-    from: vi.fn().mockReturnThis(),
-    delete: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockReturnThis(),
-    select: vi.fn().mockReturnThis(),
-    insert: vi.fn().mockReturnThis(),
-    update: vi.fn().mockReturnThis(),
-    limit: vi.fn().mockReturnThis(),
-    count: 2,
-    then: function (cb: (arg: any) => any) { return cb(this); },
-    catch: function () { return this; },
-  })),
+	createClient: vi.fn(() => ({
+		rpc: vi.fn().mockImplementation((fn: string) => {
+			if (fn === 'set_tenant_context') return Promise.resolve({ error: null });
+			if (fn === 'match_embeddings_by_tenant') return Promise.resolve({ data: [], error: null });
+			return Promise.resolve({ error: null });
+		}),
+		from: vi.fn().mockReturnThis(),
+		delete: vi.fn().mockReturnThis(),
+		eq: vi.fn().mockReturnThis(),
+		select: vi.fn().mockReturnThis(),
+		insert: vi.fn().mockReturnThis(),
+		update: vi.fn().mockReturnThis(),
+		limit: vi.fn().mockReturnThis(),
+		order: vi.fn().mockReturnThis(),
+		maybeSingle: vi.fn().mockReturnThis(),
+		single: vi.fn().mockReturnThis(),
+		count: 2,
+		then: function (cb: (arg: any) => any) { return cb(this); },
+		catch: function () { return this; },
+	})),
 }));
 
 // Mock `ioredis` with an in-memory store supporting the operations used by

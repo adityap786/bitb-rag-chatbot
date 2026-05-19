@@ -9,6 +9,7 @@ import { logger } from './observability/logger';
 import { createRagQueryTrace } from './observability/langfuse-client';
 import { recordRagQueryMetrics } from './monitoring/metrics';
 import { langCacheSearch, langCacheSet } from './langcache-api';
+import { getLLMModelConfig } from './llm-model-tier';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -94,12 +95,30 @@ export async function mcpHybridRagQuery({
   query,
   k = 5,
   llmProvider = 'groq',
-  llmModel = 'llama-3-groq-70b-8192-tool-use-preview',
+  llmModel,  // Now optional - will be auto-detected from tier
   responseCharacterLimit,
 }: McpHybridRagQueryParams): Promise<McpHybridRagResult> {
   validateTenantId(tenantId);
   const startTime = Date.now();
-  const cacheKey = createResponseCacheKey({ tenantId, llmProvider, llmModel, k, query });
+
+  // Get tier-based LLM config if model not explicitly specified
+  let effectiveModel = llmModel;
+  let effectiveMaxTokens = 512;
+  if (!llmModel) {
+    const tierConfig = await getLLMModelConfig(tenantId);
+    effectiveModel = tierConfig.model;
+    effectiveMaxTokens = tierConfig.maxTokens;
+    logger.info('Using tier-based LLM model', {
+      tenantId,
+      tier: tierConfig.tier,
+      model: effectiveModel,
+      maxTokens: effectiveMaxTokens,
+    });
+  } else {
+    effectiveModel = llmModel;
+  }
+
+  const cacheKey = createResponseCacheKey({ tenantId, llmProvider, llmModel: effectiveModel, k, query });
 
   // Normalized LLM usage info (if available)
   let llmUsage: { promptTokens?: number; completionTokens?: number; totalTokens?: number } | undefined;
@@ -145,11 +164,11 @@ export async function mcpHybridRagQuery({
   let answer = '';
   let sources: RagSource[] = [];
   let semanticResults: SemanticSearchResult[] = [];
-  
+
   // Create Langfuse trace for this RAG query
   const traceId = crypto.createHash('sha1').update(`${tenantId}:${query}:${Date.now()}`).digest('hex');
   const trace = createRagQueryTrace(traceId, tenantId, query);
-  
+
   const retriever = await TenantIsolatedRetriever.create(tenantId, {
     k,
     similarityThreshold: 0.7,
@@ -163,14 +182,14 @@ export async function mcpHybridRagQuery({
     const retrievalStartTime = Date.now();
     const documents = await retriever.retrieve(query);
     const retrievalLatencyMs = Date.now() - retrievalStartTime;
-    
+
     // Log retrieval span
     if (trace) {
       try {
         trace.span({
           name: 'retrieval',
           input: { query, k, similarity_threshold: 0.7 },
-          output: { 
+          output: {
             documents_retrieved: documents.length,
             top_similarity: documents.length > 0 ? documents[0].metadata?.similarity : null,
           },
@@ -187,13 +206,13 @@ export async function mcpHybridRagQuery({
     semanticResults = documents.map((doc, index) => ({
       embedding_id: doc.metadata?.id || doc.metadata?.embedding_id || `doc-${index + 1}`,
       kb_id: doc.metadata?.kb_id || doc.metadata?.source_id || `doc-${index + 1}`,
-      chunk_text: doc.pageContent,
+      chunk_text: doc.pageContent || (doc as any).content || '', // Support both formats
       similarity: typeof doc.metadata?.similarity === 'number' ? doc.metadata.similarity : 0,
       metadata: doc.metadata || {},
     }));
     sources = documents.map((doc, index) => ({
       title: doc.metadata?.title || doc.metadata?.kb_id || `source-${index + 1}`,
-      chunk: doc.pageContent,
+      chunk: doc.pageContent || (doc as any).content || '', // Support both formats
       similarity: typeof doc.metadata?.similarity === 'number' ? doc.metadata.similarity : 0,
       index: index + 1,
       metadata: doc.metadata || {},
@@ -204,17 +223,17 @@ export async function mcpHybridRagQuery({
     } else {
       const context = buildContextFromResults(semanticResults);
       const llmClient = getGroqClient();
-      
+
       // SPAN: LLM Generation
       const llmStartTime = Date.now();
       const llmResponse = await llmClient.complete({
-        model: llmModel,
+        model: effectiveModel,
         messages: [
           { role: 'system', content: 'You are a helpful assistant. Answer using the provided context only and cite sources as [n].' },
           { role: 'user', content: `Question: ${query}\n\nContext:\n${context}` },
         ],
         temperature: 0.15,
-        maxTokens: 512,
+        maxTokens: effectiveMaxTokens,
       });
       const llmLatencyMs = Date.now() - llmStartTime;
       answer = llmResponse.content;
@@ -225,7 +244,7 @@ export async function mcpHybridRagQuery({
           totalTokens: llmResponse.usage.totalTokens,
         };
       }
-      
+
       // Log LLM generation span with token usage
       if (trace) {
         try {
@@ -282,7 +301,7 @@ export async function mcpHybridRagQuery({
     confidence: sources.length > 0 ? 0.8 : 0.3,
     llmError,
     llmProvider,
-    llmModel,
+    llmModel: effectiveModel,
     latencyMs,
     characterLimitApplied: responseCharacterLimit || null,
     originalLength,
@@ -407,3 +426,172 @@ export async function batchMcpHybridRagQuery(params: {
   return responses.filter((res): res is McpHybridRagResult => Boolean(res));
 }
 
+
+export async function* streamMcpHybridRagQuery({
+  tenantId,
+  query,
+  k = 5,
+  llmProvider = 'groq',
+  llmModel,  // Now optional - will be auto-detected from tier
+  responseCharacterLimit,
+}: McpHybridRagQueryParams): AsyncGenerator<any, void, unknown> {
+  validateTenantId(tenantId);
+  const startTime = Date.now();
+
+  // Get tier-based LLM config if model not explicitly specified
+  let effectiveModel = llmModel;
+  let effectiveMaxTokens = 512;
+  if (!llmModel) {
+    const tierConfig = await getLLMModelConfig(tenantId);
+    effectiveModel = tierConfig.model;
+    effectiveMaxTokens = tierConfig.maxTokens;
+    logger.info('Using tier-based LLM model (streaming)', {
+      tenantId,
+      tier: tierConfig.tier,
+      model: effectiveModel,
+    });
+  } else {
+    effectiveModel = llmModel;
+  }
+
+  const cacheKey = createResponseCacheKey({ tenantId, llmProvider, llmModel: effectiveModel, k, query });
+
+  // 1. Try Cache first
+  try {
+    const langCacheResult = await langCacheSearch(cacheKey);
+    if (langCacheResult && langCacheResult.response) {
+      logger.info('LangCache SaaS hit (streaming)', { tenantId, source: 'langcache-saas' });
+      yield { type: 'done', ...langCacheResult.response, cached: true };
+      return;
+    }
+  } catch (err) {
+    logger.warn('LangCache SaaS search failed', { error: String(err) });
+  }
+
+  const cachedFromLocal = fallbackResponseCache.get(cacheKey);
+  if (cachedFromLocal && Date.now() - cachedFromLocal.timestamp < CACHE_TTL_MS) {
+    yield { type: 'done', ...cachedFromLocal.response, cached: true };
+    return;
+  }
+
+  const retriever = await TenantIsolatedRetriever.create(tenantId, {
+    k,
+    similarityThreshold: 0.7,
+    useCache: true,
+    redisUrl: process.env.RAG_REDIS_URL,
+    cacheTtlSeconds: 300,
+  });
+
+  let answer = '';
+  let sources: RagSource[] = [];
+  let llmError: string | null = null;
+  let usage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+
+  try {
+    // SPAN: Retrieval
+    const documents = await retriever.retrieve(query);
+    const semanticResults = documents.map((doc, index) => ({
+      chunk_text: doc.pageContent,
+      metadata: doc.metadata || {},
+    }));
+    sources = documents.map((doc, index) => ({
+      title: doc.metadata?.title || doc.metadata?.kb_id || `source-${index + 1}`,
+      chunk: doc.pageContent,
+      similarity: typeof doc.metadata?.similarity === 'number' ? doc.metadata.similarity : 0,
+      index: index + 1,
+      metadata: doc.metadata || {},
+    }));
+
+    // Emit sources immediately
+    yield { type: 'meta', sources };
+
+    if (documents.length === 0) {
+      const msg = 'No relevant information was found for that query.';
+      yield { type: 'token', token: msg };
+      answer = msg;
+    } else {
+      const context = buildContextFromResults(semanticResults);
+      const llmClient = getGroqClient();
+
+      if ('stream' in llmClient) {
+        const stream = await llmClient.stream({
+          model: effectiveModel,
+          messages: [
+            { role: 'system', content: 'You are a helpful assistant. Answer using the provided context only and cite sources as [n].' },
+            { role: 'user', content: `Question: ${query}\n\nContext:\n${context}` },
+          ],
+          temperature: 0.15,
+          maxTokens: effectiveMaxTokens,
+        });
+
+        for await (const chunk of stream) {
+          const content = chunk.choices[0]?.delta?.content || '';
+          if (content) {
+            answer += content;
+            yield { type: 'token', token: content };
+          }
+          if (chunk.usage) {
+            // Some providers send usage in the last chunk
+            usage = {
+              promptTokens: chunk.usage.prompt_tokens,
+              completionTokens: chunk.usage.completion_tokens,
+              totalTokens: chunk.usage.total_tokens
+            };
+          }
+        }
+      } else {
+        // Fallback if stream method is missing (runtime safety)
+        const result = await (llmClient as any).complete({
+          model: llmModel,
+          messages: [
+            { role: 'system', content: 'You are a helpful assistant.' },
+            { role: 'user', content: `Question: ${query}\n\nContext:\n${context}` },
+          ],
+        });
+        answer = result.content;
+        yield { type: 'token', token: answer };
+      }
+    }
+  } catch (error: any) {
+    llmError = error?.message ?? 'Unknown inference error';
+    TrialLogger.error('streamMcpHybridRagQuery failed', error, { tenantId, query });
+    if (!answer) {
+      const msg = 'I could not reach the knowledge base right now.';
+      yield { type: 'token', token: msg };
+      answer = msg;
+    }
+  } finally {
+    await retriever.close();
+  }
+
+  const latencyMs = Date.now() - startTime;
+  if (responseCharacterLimit) {
+    // Note: Truncating after streaming is awkward visually, but required for strict compliance
+    // ideally we'd stop generation early, but for now we format the final answer
+    answer = formatResponseByCharacterLimit(answer, responseCharacterLimit);
+  }
+
+  const finalResult: CachedRagResponse = {
+    answer,
+    sources,
+    confidence: sources.length > 0 ? 0.8 : 0.3,
+    llmError,
+    llmProvider,
+    llmModel: effectiveModel,
+    latencyMs,
+    characterLimitApplied: responseCharacterLimit || null,
+    originalLength: answer.length,
+    usage
+  };
+
+  // Cache the result for future non-streaming or streaming calls
+  fallbackResponseCache.set(cacheKey, { response: finalResult, timestamp: Date.now() });
+  try {
+    await langCacheSet(cacheKey, finalResult);
+  } catch (err) {
+    logger.warn('LangCache SaaS set failed', { error: String(err) });
+  }
+
+  // Yield final done event
+  yield { type: 'done', ...finalResult };
+}

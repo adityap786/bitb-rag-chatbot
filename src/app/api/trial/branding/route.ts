@@ -46,7 +46,6 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
     const body = await req.json();
     const platform = typeof body.platform === 'string' ? body.platform.slice(0, 64) : null;
     const framework = typeof body.framework === 'string' ? body.framework.slice(0, 64) : null;
-    const hosting = typeof body.hosting === 'string' ? body.hosting.slice(0, 128) : null;
     const logoUrl = typeof body.logoUrl === 'string' ? body.logoUrl.slice(0, 512) : null;
     const knowledgeBaseSources = Array.isArray(body.knowledgeBaseSources)
       ? (body.knowledgeBaseSources as string[]).slice(0, 20)
@@ -198,7 +197,6 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
         logoUrl: logoUrl || config.avatar_url || null,
         platform,
         framework,
-        hosting,
         knowledgeBaseSources,
         assignedTools: config.assigned_tools,
       },

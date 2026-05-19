@@ -216,40 +216,135 @@ class WebsiteCrawler:
 
 
 # =============================================================================
-# Text Chunking
+# Text Chunking (Recursive Character Splitting)
 # =============================================================================
 
-class TextChunker:
-    """Chunks text into overlapping segments"""
+class RecursiveCharacterTextSplitter:
+    """
+    Recursively splits text by specific separators to keep related context (paragraphs) together.
+    Inspired by LangChain's RecursiveCharacterTextSplitter.
+    """
     
-    def __init__(self, chunk_size: int = 600, overlap: int = 100):
+    def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 200, separators: List[str] = None):
         self.chunk_size = chunk_size
-        self.overlap = overlap
+        self.chunk_overlap = chunk_overlap
+        self.separators = separators or ["\n\n", "\n", ". ", " ", ""]
+        
+    def split_text(self, text: str) -> List[str]:
+        final_chunks = []
+        
+        # Determine strict separator
+        separator = self.separators[-1]
+        new_separators = []
+        
+        for i, s in enumerate(self.separators):
+            if s == "":
+                separator = s
+                break
+            if s in text:
+                separator = s
+                new_separators = self.separators[i + 1:]
+                break
+                
+        # Split
+        if separator:
+            splits = text.split(separator)
+        else:
+            splits = list(text) # Split by char if empty string separator
+            
+        # Merge
+        final_chunks = []
+        current_doc = []
+        total_len = 0
+        sep_len = len(separator)
+        
+        for d in splits:
+            _len = len(d)
+            if total_len + _len + (sep_len if current_doc else 0) > self.chunk_size:
+                if total_len > self.chunk_size:
+                    # Current piece is too big, recurse if possible
+                    if new_separators:
+                        recursive_splitter = RecursiveCharacterTextSplitter(
+                            chunk_size=self.chunk_size, 
+                            chunk_overlap=self.chunk_overlap, 
+                            separators=new_separators
+                        )
+                        sub_chunks = recursive_splitter.split_text(d)
+                        final_chunks.extend(sub_chunks)
+                        # We don't add 'd' to current_doc essentially? 
+                        # Actually logic is tricky. If we recurse on 'd', we shouldn't add it to current_doc.
+                        # But wait, we need to flush current_doc first.
+                    else:
+                        # Give up, just append as is (soft fail on chunk size)
+                        # But first flush current doc
+                        pass
+                
+                if current_doc:
+                    doc = separator.join(current_doc)
+                    if doc.strip():
+                        final_chunks.append(doc)
+                    
+                    # Backtrack for overlap
+                    while total_len > self.chunk_overlap or (total_len > 0 and len(current_doc) > 1):
+                        popped = current_doc.pop(0)
+                        total_len -= len(popped) + (sep_len if current_doc else 0)
+            
+            # Recurse check again for 'd' only if it wasn't processed? 
+            # Simplified logic: merge first, then check if merged doc is too big (handled by flush)
+            # BUT if 'd' itself is huge, we need to handle it.
+            
+            if len(d) > self.chunk_size and new_separators:
+                 # Flush current
+                 if current_doc:
+                    doc = separator.join(current_doc)
+                    if doc.strip():
+                        final_chunks.append(doc)
+                    current_doc = []
+                    total_len = 0
+                 
+                 # Recurse on d
+                 recursive_splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=self.chunk_size, 
+                    chunk_overlap=self.chunk_overlap, 
+                    separators=new_separators
+                 )
+                 sub_chunks = recursive_splitter.split_text(d)
+                 final_chunks.extend(sub_chunks)
+                 continue
+
+            current_doc.append(d)
+            total_len += len(d) + (sep_len if len(current_doc) > 1 else 0)
+            
+        if current_doc:
+            doc = separator.join(current_doc)
+            if doc.strip():
+                final_chunks.append(doc)
+                
+        return final_chunks
+
+class TextChunker:
+    """Chunks text into overlapping segments using Recursive Strategy"""
+    
+    def __init__(self, chunk_size: int = 1000, overlap: int = 200):
+        self.splitter = RecursiveCharacterTextSplitter(chunk_size, overlap)
     
     def chunk_text(self, text: str, source_url: str, metadata: Dict = None) -> List[Dict]:
         """Split text into chunks with metadata"""
-        # Simple word-based chunking (approximates tokens)
-        words = text.split()
-        chunks = []
+        raw_chunks = self.splitter.split_text(text)
+        structured_chunks = []
         
-        for i in range(0, len(words), self.chunk_size - self.overlap):
-            chunk_words = words[i:i + self.chunk_size]
-            chunk_text = ' '.join(chunk_words)
+        for i, chunk_text in enumerate(raw_chunks):
+            chunk_id = hashlib.md5(f"{source_url}:{i}:{chunk_text[:20]}".encode()).hexdigest()
             
-            if len(chunk_words) < 50:  # Skip very small chunks
-                continue
-            
-            chunk_id = hashlib.md5(f"{source_url}:{i}".encode()).hexdigest()
-            
-            chunks.append({
+            structured_chunks.append({
                 'id': chunk_id,
                 'text': chunk_text,
                 'source_url': source_url,
-                'chunk_index': len(chunks),
+                'chunk_index': i,
                 'metadata': metadata or {}
             })
         
-        return chunks
+        return structured_chunks
 
 
 # =============================================================================

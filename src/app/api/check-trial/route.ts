@@ -11,6 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { redis } from '@/lib/redis-client';
 
 export async function GET(request: any, context: { params: Promise<{}> }) {
   try {
@@ -48,20 +49,44 @@ export async function GET(request: any, context: { params: Promise<{}> }) {
       );
     }
 
-    // Look up trial in Supabase
-    const supabaseUrl = process.env.SUPABASE_URL!;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-    const { createClient } = await import('@supabase/supabase-js');
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    let trial = null;
 
-    const { data: trial, error: dbError } = await supabase
-      .from('trials')
-      .select('*')
-      .eq('trial_token', trial_token)
-      .single();
+    // Try cache first
+    const cacheKey = `trial:data:${trial_token}`;
+    try {
+      const cachedData = await redis.get(cacheKey);
+      if (cachedData) {
+        trial = JSON.parse(cachedData);
+      }
+    } catch (e) {
+      console.warn('Redis cache error:', e);
+    }
 
-    if (dbError || !trial) {
-      return NextResponse.json({ valid: false, error: 'Trial not found' }, { status: 404 });
+    if (!trial) {
+      // Look up trial in Supabase
+      const supabaseUrl = process.env.SUPABASE_URL!;
+      const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+      const { createClient } = await import('@supabase/supabase-js');
+      const supabase = createClient(supabaseUrl, supabaseKey);
+
+      const { data, error: dbError } = await supabase
+        .from('trials')
+        .select('*')
+        .eq('trial_token', trial_token)
+        .single();
+
+      if (dbError || !data) {
+        return NextResponse.json({ valid: false, error: 'Trial not found' }, { status: 404 });
+      }
+
+      trial = data;
+
+      // Cache valid trial data for 10 minutes
+      try {
+        await redis.set(cacheKey, JSON.stringify(trial), { ex: 600 });
+      } catch (e) {
+        console.warn('Redis set error:', e);
+      }
     }
 
     // Validate origin for security

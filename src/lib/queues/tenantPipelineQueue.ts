@@ -12,7 +12,8 @@ if (fs.existsSync(envLocalPath)) {
   dotenv.config({ path: envPath });
 }
 
-import { Queue, Worker, QueueScheduler, Job } from 'bullmq';
+// BullMQ v5: QueueScheduler is no longer needed - delayed jobs are handled automatically
+import { Queue, Worker, Job } from 'bullmq';
 import type { JobsOptions } from 'bullmq';
 import { logger } from '../observability/logger';
 import { buildRAGPipeline } from '../trial/rag-pipeline';
@@ -81,7 +82,6 @@ function resolveBullmqConnection(): any {
 
 let queueOptions: any = undefined;
 let tenantPipelineQueue: Queue<TenantPipelineJobData> | null = null;
-let tenantPipelineScheduler: QueueScheduler | null = null;
 let tenantPipelineWorker: Worker<TenantPipelineJobData> | null = null;
 
 function ensureQueue(): void {
@@ -101,10 +101,7 @@ function ensureQueue(): void {
 
 function ensureWorkerSystem(): void {
   ensureQueue();
-
-  // QueueScheduler should run in a long-lived process (the worker), not inside
-  // a short-lived web/request process.
-  if (!tenantPipelineScheduler) tenantPipelineScheduler = new QueueScheduler(QUEUE_NAME, queueOptions);
+  // BullMQ v5: QueueScheduler is no longer needed
 }
 
 export function isTenantPipelineQueueEnabled(): boolean {
@@ -170,10 +167,6 @@ export async function shutdownTenantPipelineQueue(): Promise<void> {
     if (tenantPipelineWorker) {
       await tenantPipelineWorker.close();
       tenantPipelineWorker = null;
-    }
-    if (tenantPipelineScheduler) {
-      await tenantPipelineScheduler.close();
-      tenantPipelineScheduler = null;
     }
     if (tenantPipelineQueue) {
       await tenantPipelineQueue.close();

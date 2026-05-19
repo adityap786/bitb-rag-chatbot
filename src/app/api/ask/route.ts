@@ -27,6 +27,7 @@ import { isPipelineReady } from '@/lib/trial/pipeline-readiness';
 import { rateLimit, RATE_LIMITS } from '@/middleware/rate-limit';
 import { checkTenantRateLimit } from '@/middleware/tenant-rate-limit';
 import { enforceQuota } from '@/lib/trial/quota-enforcer';
+import { checkChatRateLimit, getRateLimitHeaders } from '@/lib/rate-limit/per-bot-limiter';
 
 /**
  * Handle batch query with SSE progress updates
@@ -43,14 +44,14 @@ async function handleBatchQuery(
     const { BatchRAGEngine } = await import('@/lib/rag/batch-rag-engine');
     const { TenantIsolatedRetriever } = await import('@/lib/rag/supabase-retriever-v2');
     const { GroqClientWithBreaker } = await import('@/lib/rag/llm-client-with-breaker');
-    
+
     // Initialize RAG components
     const retriever = await TenantIsolatedRetriever.create(tenant_id, { k: 5, similarityThreshold: 0.7 });
     const llmClient = new GroqClientWithBreaker(
       process.env.GROQ_API_KEY,
-      'llama-3-groq-70b-8192-tool-use-preview'
+      'llama-3.3-70b-versatile'
     );
-    
+
     const batchEngine = new BatchRAGEngine(
       tenant_id,
       retriever,
@@ -182,7 +183,7 @@ export async function POST(request: any, context: { params: Promise<{}> }) {
       return validationError;
     }
 
-    const { tenant_id: tid, trial_token, query, queries, batch, responseCharacterLimit, sessionId } = body as {
+    const { tenant_id: tid, trial_token, query, queries, batch, responseCharacterLimit, sessionId, chatbot_id } = body as {
       tenant_id: string;
       trial_token?: string;
       query?: string;
@@ -190,6 +191,7 @@ export async function POST(request: any, context: { params: Promise<{}> }) {
       batch?: boolean;
       responseCharacterLimit?: 250 | 450;
       sessionId?: string;
+      chatbot_id?: string;
     };
     tenant_id = tid;
 
@@ -204,6 +206,31 @@ export async function POST(request: any, context: { params: Promise<{}> }) {
         },
         { status: 429 }
       );
+    }
+
+    // Per-bot rate limiting (if chatbot_id provided) - more granular control
+    const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+      || request.headers.get('x-real-ip')
+      || 'unknown';
+
+    if (chatbot_id) {
+      const botRateLimitResult = await checkChatRateLimit(tenant_id, chatbot_id, clientIp);
+      if (!botRateLimitResult.allowed) {
+        const headers = getRateLimitHeaders(botRateLimitResult);
+        const retryAfterMs = Math.max(0, (botRateLimitResult.resetAt - Math.floor(Date.now() / 1000))) * 1000;
+        return NextResponse.json(
+          {
+            error: `Rate limit exceeded: ${botRateLimitResult.limitType}. Please wait before sending more requests.`,
+            code: 'RATE_LIMIT_EXCEEDED',
+            limitType: botRateLimitResult.limitType,
+            retryAfterMs,
+          },
+          {
+            status: 429,
+            headers,
+          }
+        );
+      }
     }
 
     // Handle batch mode (enforce token quota before starting SSE work)
@@ -233,6 +260,26 @@ export async function POST(request: any, context: { params: Promise<{}> }) {
     const piiDetections = detectPII(query);
     if (piiDetections.length > 0) {
       await AuditLogger.logPIIDetection(tenant_id, piiDetections.map(d => d.type), query);
+    }
+
+    // SECURITY: Detect prompt injection attempts
+    const { detectPromptInjection, sanitizeResponse } = await import('@/lib/safety/prompt-guard');
+    const promptSafety = detectPromptInjection(query);
+    if (!promptSafety.isSafe) {
+      TrialLogger.warn('Prompt injection detected', {
+        tenantId: tenant_id,
+        correlationId,
+        threatType: promptSafety.threatType,
+        confidence: promptSafety.confidence,
+        queryPreview: query.slice(0, 100),
+      });
+      return NextResponse.json(
+        {
+          error: 'Your query could not be processed. Please rephrase your question.',
+          code: 'QUERY_BLOCKED',
+        },
+        { status: 400 }
+      );
     }
 
     // Check query limit for trial users
@@ -269,14 +316,14 @@ export async function POST(request: any, context: { params: Promise<{}> }) {
     // Use enhanced hybrid RAG with Groq Llama-3-70B
     const { mcpHybridRagQuery } = await import('@/lib/ragPipeline');
     const { createRagQueryTrace } = await import('@/lib/observability/langfuse-client');
-    
+
     // Create trace for API request
     const traceId = `api-${tenant_id}-${Date.now()}`;
     const trace = createRagQueryTrace(traceId, tenant_id, query);
-    
+
     // Mask PII for query
     const maskedQuery = PIIMasker.forLLM(query).masked_text;
-    
+
     // Log PII detection in trace
     if (trace && piiDetections.length > 0) {
       try {
@@ -291,7 +338,7 @@ export async function POST(request: any, context: { params: Promise<{}> }) {
         // Event logging is best-effort
       }
     }
-    
+
     // Get tenant LLM preferences and enforce pipeline readiness before querying
     const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     await supabase.rpc('set_tenant_context', { p_tenant_id: tenant_id });
@@ -329,8 +376,20 @@ export async function POST(request: any, context: { params: Promise<{}> }) {
     const { data: tenantStatus } = tenantStatusResult;
 
     const minVectors = Number(process.env.MIN_PIPELINE_VECTORS ?? '10');
+
+    // Derive ragStatus with same logic as pipeline-ready endpoint
+    // If job is completed with vectors > 0, treat as ready (consistent with pipeline-ready)
+    let ragStatus = tenantStatus?.status || null;
+    if (lastJob?.status === 'completed' && vectorCount > 0) {
+      ragStatus = 'ready';
+    } else if (lastJob?.status === 'processing') {
+      ragStatus = 'processing';
+    } else if (lastJob?.status === 'failed') {
+      ragStatus = 'failed';
+    }
+
     const ready = isPipelineReady({
-      ragStatus: tenantStatus?.status || null,
+      ragStatus,
       lastJobStatus: lastJob?.status || null,
       vectorCount: vectorCount ?? 0,
       minVectors,
@@ -359,7 +418,7 @@ export async function POST(request: any, context: { params: Promise<{}> }) {
     }
 
     const llmProvider = trial?.llm_provider || 'groq';
-    const llmModel = trial?.llm_model || 'llama-3-groq-70b-8192-tool-use-preview';
+    const llmModel = trial?.llm_model || 'llama-3.3-70b-versatile';
 
     // Run hybrid search + LLM synthesis
     const ragResult = await mcpHybridRagQuery({

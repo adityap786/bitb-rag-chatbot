@@ -25,7 +25,7 @@ const cacheCleanupInterval = setInterval(() => {
 
 export async function GET(req: NextRequest, context: { params: Promise<{ tenantId: string }> }) {
   const startTime = Date.now();
-  
+
   try {
     const { tenantId } = await context.params;
 
@@ -55,7 +55,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ tenantI
         .select('status, plan')
         .eq('tenant_id', tenantId)
         .single(),
-      
+
       // Query 2: Latest job (fast - index on tenant_id + updated_at)
       supabase
         .from('ingestion_jobs')
@@ -86,10 +86,12 @@ export async function GET(req: NextRequest, context: { params: Promise<{ tenantI
     const minVectors = Number(process.env.MIN_PIPELINE_VECTORS ?? '10'); // Require a few vectors before ready
 
     // Derive rag_status from tenant status and job info.
-    // IMPORTANT: Only mark 'ready' when the same readiness threshold is satisfied,
-    // otherwise callers can observe "ready" here but still be blocked by /api/ask.
+    // IMPORTANT: If job is explicitly completed, we trust the vector count is final (even if < minVectors).
     let ragStatus = tenant.status || 'pending';
-    if (lastJob?.status === 'completed' && (vectorCount ?? 0) >= Math.max(minVectors, 0)) {
+    if (lastJob?.status === 'completed' && (vectorCount ?? 0) > 0) {
+      ragStatus = 'ready';
+    } else if (lastJob?.status === 'completed' && (vectorCount ?? 0) >= minVectors) {
+      // Fallback for cases where status might be ambiguous but count is high
       ragStatus = 'ready';
     } else if (lastJob?.status === 'processing') {
       ragStatus = 'processing';
@@ -120,6 +122,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ tenantI
       ragStatus,
       vectorCount: vectorCount ?? 0,
       minVectors,
+      canRetry: lastJob?.status === 'completed' && (vectorCount ?? 0) === 0 && (vectorCount ?? 0) < minVectors,
       lastIngestion: lastJob ? {
         jobId: lastJob.job_id,
         status: lastJob.status,
@@ -127,6 +130,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ tenantI
         embeddingsCount: lastJob.embeddings_count ?? null,
       } : null,
     };
+
 
     // Cache the result
     readinessCache.set(tenantId, { ready, data: responseData, ts: Date.now() });

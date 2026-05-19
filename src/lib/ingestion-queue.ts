@@ -3,7 +3,8 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import { Queue, Worker, QueueScheduler, Job } from 'bullmq';
+// BullMQ v5: QueueScheduler is no longer needed - delayed jobs are handled automatically
+import { Queue, Worker, Job } from 'bullmq';
 import { upstashRedis } from './redis-client-upstash';
 
 // BullMQ requires Redis protocol, not Upstash REST. If you need serverless queues, use Upstash QStash or a cloud queue. For now, we document this limitation.
@@ -46,7 +47,6 @@ export interface IngestionJobData {
 }
 
 let _ingestionQueue: Queue<IngestionJobData> | null = null;
-let _ingestionScheduler: QueueScheduler | null = null;
 
 export function getIngestionQueue() {
   if (!_ingestionQueue) {
@@ -55,13 +55,6 @@ export function getIngestionQueue() {
     });
   }
   return _ingestionQueue;
-}
-
-export function getIngestionQueueScheduler() {
-  if (!_ingestionScheduler) {
-    _ingestionScheduler = new QueueScheduler('ingestion', { connection: resolveBullmqConnection() });
-  }
-  return _ingestionScheduler;
 }
 
 // Enqueue a new ingestion job
@@ -76,12 +69,7 @@ export async function enqueueIngestionJob(job: IngestionJobData) {
 
 // Worker process (to be run in a separate process/service)
 export function startIngestionWorker(processJob: (job: Job<IngestionJobData>) => Promise<any>) {
-  // Ensure scheduler exists for delayed/backoff jobs.
-  try {
-    getIngestionQueueScheduler();
-  } catch {
-    // If scheduler can't start (e.g. missing Redis in prod), worker start will fail anyway.
-  }
+  // BullMQ v5: QueueScheduler is no longer needed - delayed jobs are handled automatically
 
   const worker = new Worker<IngestionJobData>(
     'ingestion',

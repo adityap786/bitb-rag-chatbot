@@ -132,7 +132,7 @@ const MODEL_PRICING: ModelPricing[] = [
   { model: 'text-embedding-3-large', provider: 'openai', input_cost_per_1k: 0, output_cost_per_1k: 0, embedding_cost_per_1k: 0.00013 },
   
   // Groq (much cheaper!)
-  { model: 'llama-3-groq-70b-8192-tool-use-preview', provider: 'groq', input_cost_per_1k: 0.00059, output_cost_per_1k: 0.00079 },
+  { model: 'llama-3.3-70b-versatile', provider: 'groq', input_cost_per_1k: 0.00059, output_cost_per_1k: 0.00079 },
   { model: 'llama-3.1-70b-versatile', provider: 'groq', input_cost_per_1k: 0.00059, output_cost_per_1k: 0.00079 },
   { model: 'llama-3.1-8b-instant', provider: 'groq', input_cost_per_1k: 0.00005, output_cost_per_1k: 0.00008 },
   { model: 'mixtral-8x7b-32768', provider: 'groq', input_cost_per_1k: 0.00024, output_cost_per_1k: 0.00024 },

@@ -99,7 +99,12 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
         type: 'setup',
       },
       JWT_SECRET as string,
-      { expiresIn: '24h', algorithm: 'HS256' }
+      {
+        expiresIn: '24h',
+        algorithm: 'HS256',
+        issuer: 'bitb.ltd',
+        audience: 'bitb-chatbot',
+      }
     );
 
     // Store setup token in metadata (tenants table doesn't have setup_token column)
@@ -113,6 +118,31 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
         requestId,
         tenantId: tenant.tenant_id,
         error: updateError.message,
+      });
+    }
+
+    // Create trial record for quota tracking
+    // This is required for checkQueryLimit to work properly
+    const { error: trialInsertError } = await supabase
+      .from('trials')
+      .insert({
+        tenant_id: tenant.tenant_id,
+        trial_token: setupToken,
+        queries_used: 0,
+        queries_limit: 100,
+        status: 'active',
+        expires_at: trialExpiresAt.toISOString(),
+        admin_email: body.email,
+        display_name: body.businessName,
+        business_name: body.businessName,
+        business_type: body.businessType,
+      });
+
+    if (trialInsertError) {
+      TrialLogger.warn('Failed to create trial record', {
+        requestId,
+        tenantId: tenant.tenant_id,
+        error: trialInsertError.message,
       });
     }
 

@@ -5,7 +5,7 @@ from typing import List
 from sentence_transformers import SentenceTransformer
 import uvicorn
 
-MODEL_NAME = os.getenv("BGE_MODEL", "BAAI/bge-large-en-v1.5")
+MODEL_NAME = "BAAI/bge-base-en-v1.5"
 
 app = FastAPI(title="BGE Embedding Service", version="1.0.0")
 

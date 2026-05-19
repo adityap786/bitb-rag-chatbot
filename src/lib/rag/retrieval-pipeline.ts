@@ -71,12 +71,12 @@ export class RetrievalPipeline {
     this.chunker = options.chunker;
     // Provide safe defaults so unit tests can omit stores/have no-op behavior
     this.vectorStore = options.vectorStore ?? {
-      upsertChunks: async () => {},
+      upsertChunks: async () => { },
       query: async () => [],
     };
 
     this.keywordIndex = options.keywordIndex ?? {
-      upsertChunks: async () => {},
+      upsertChunks: async () => { },
       query: async () => [],
     };
 
@@ -85,7 +85,16 @@ export class RetrievalPipeline {
     this.hybridSearch =
       options.hybridSearch ??
       new HybridSearch({
-        vectorSearch: (query: string, topK: number) => this.vectorStore.query(this.tenantId, query, topK),
+        vectorSearch: async (query: string, topK: number) => {
+          try {
+            const embeddingService = LlamaIndexEmbeddingService.getInstance();
+            const queryEmbedding = await embeddingService.embed(query);
+            return this.vectorStore.query(this.tenantId, query, topK, { queryEmbedding });
+          } catch (err) {
+            logger.error('RetrievalPipeline: vectorSearch failed to embed query', { err });
+            return [];
+          }
+        },
         keywordSearch: (query: string, topK: number) => this.keywordIndex.query(this.tenantId, query, topK),
       });
   }
@@ -216,6 +225,15 @@ export class RetrievalPipeline {
   async retrieve(query: string, topK = 10, filter?: Record<string, any>) {
     // Use hybrid search for retrieval, with optional filtering
     // Filtering can be passed to vector/keyword stores if supported
-    return this.hybridSearch.search(query);
+    const results = await this.hybridSearch.search(query);
+
+    // Inject tenant_id into result metadata for TenantIsolationGuard validation
+    return results.map((result) => ({
+      ...result,
+      metadata: {
+        ...result.metadata,
+        tenant_id: this.tenantId,
+      },
+    }));
   }
 }

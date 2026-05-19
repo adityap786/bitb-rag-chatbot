@@ -31,7 +31,6 @@ export async function GET(req: NextRequest, context: { params: Promise<{ tenantI
       welcomeMessage: cfg.welcome_message,
       logo: cfg.avatar_url || null,
       framework: null,
-      hosting: null,
       assignedTools: cfg.assigned_tools || [],
       promptTemplate: cfg.prompt_template || null,
     });

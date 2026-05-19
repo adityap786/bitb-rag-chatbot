@@ -56,4 +56,9 @@ Thumbs.db
 .tmp/
 **/__pycache__/
 *.pyc
-server-output.txtservices/bge_embedding_service/.venv
+server-output.txt
+
+# Python virtual environments
+.venv/
+**/venv/
+services/bge_embedding_service/.venv/

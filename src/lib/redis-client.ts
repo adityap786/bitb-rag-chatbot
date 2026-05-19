@@ -15,9 +15,11 @@ interface RedisLike {
   del(...keys: string[]): Promise<number>;
   incr(key: string): Promise<number>;
   incrby(key: string, amount: number): Promise<number>;
+  decrby(key: string, amount: number): Promise<number>; // For quota rollback
   expire(key: string, seconds: number): Promise<number>;
   keys(pattern: string): Promise<string[]>;
 }
+
 
 // Use Upstash Redis for all environments except test/mock
 const redis: RedisLike = upstashRedis;

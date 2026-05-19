@@ -188,7 +188,11 @@ export async function POST(req: Request) {
     }
     // Generate JTI (unique token ID)
     const jti = `${tenantId}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
-    const token = jwt.sign({ tenantId, jti }, SERVER_SECRET, { expiresIn: '5m' });
+    const token = jwt.sign({ tenantId, jti }, SERVER_SECRET, {
+      expiresIn: '5m',
+      issuer: 'bitb.ltd',
+      audience: 'bitb-widget',
+    });
     tokenMintCounter.inc({ tenant_id: tenantId, status: 'success' });
     if (tracker) await tracker.recordSuccess({ status_code: 200 });
     logger.info('Audit log', {

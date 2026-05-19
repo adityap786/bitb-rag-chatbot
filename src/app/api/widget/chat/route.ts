@@ -10,6 +10,20 @@ import { getLegalDisclaimer, analyzeDocument } from '@/lib/legal/compliance';
 import { checkTenantRateLimit } from '../../../../middleware/tenant-rate-limit';
 import { rateLimit, RATE_LIMITS } from '@/middleware/rate-limit';
 import { logger } from '../../../../lib/observability/logger';
+import { createLazyServiceClient } from '@/lib/supabase-client';
+import TrialLogger from '@/lib/trial/logger';
+import type { McpHybridRagResult } from '@/lib/ragPipeline';
+import { getLLM } from '@/lib/llm/factory';
+import { generateText } from 'ai';
+import { validateTenantId } from '@/lib/security/rag-guardrails';
+import { randomUUID } from 'crypto';
+// Hoisted monitoring imports (were dynamic)
+import { recordApiCall, incrementMetric, observeLatency } from '@/lib/monitoring';
+import { recordChatApiMetrics } from '@/lib/monitoring/metrics';
+import { getPlanDetector } from '@/lib/plan-detector';
+
+const supabase = createLazyServiceClient();
+
 // Utility to mask PII (simple email/phone masking)
 function maskPII(str: string): string {
   if (!str) return str;
@@ -19,16 +33,6 @@ function maskPII(str: string): string {
   str = str.replace(/\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/g, '***-***-****');
   return str;
 }
-import { createLazyServiceClient } from '@/lib/supabase-client';
-import TrialLogger from '@/lib/trial/logger';
-import type { McpHybridRagResult } from '@/lib/ragPipeline';
-
-const supabase = createLazyServiceClient();
-
-import { getLLM } from '@/lib/llm/factory';
-import { generateText } from 'ai';
-import { validateTenantId } from '@/lib/security/rag-guardrails';
-import { randomUUID } from 'crypto';
 
 async function generateChatResponse(
   prompt: string,
@@ -46,7 +50,7 @@ async function generateChatResponse(
 
   // Use Groq via AI SDK
   const model = getLLM(tenantId);
-  
+
   const { text } = await generateText({
     model,
     system: systemPrompt,
@@ -68,9 +72,6 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
   const ipRateLimitResponse = await rateLimit(req, RATE_LIMITS.chat);
   if (ipRateLimitResponse) return ipRateLimitResponse;
 
-  // Monitoring: import and prepare metrics
-  const { recordApiCall, incrementMetric, observeLatency } = await import('@/lib/monitoring');
-  const { recordChatApiMetrics } = await import('@/lib/monitoring/metrics');
   // Tenant / tracker (declared here so catch block can access)
   let tenantId: string | undefined = undefined;
   let tracker: any | undefined;
@@ -117,28 +118,31 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
     }
 
     // Per-tenant rate limiting (30 req/min)
-    // Extract tenantId from session if possible
+    // Fetch session with full data ONCE (instead of twice)
     let isBatch = false;
     let batchMessages: Array<{ query: string; metadata?: Record<string, any> }> = [];
     let messageLength = 0;
+    let session: any = null;
+
     if (body.sessionId) {
-      const { data: sessionForTenant, error: sessionForTenantError } = await supabase
+      const { data: sessionData, error: sessionError } = await supabase
         .from('chat_sessions')
-        .select('tenant_id')
+        .select('*, tenants(status, expires_at, metadata, industry_vertical)')
         .eq('session_id', body.sessionId)
         .maybeSingle();
 
-      if (sessionForTenantError && sessionForTenantError.code !== 'PGRST116') {
-        logger.error('Failed to lookup session tenant for rate limiting', { message: sessionForTenantError.message, requestId });
+      if (sessionError && sessionError.code !== 'PGRST116') {
+        logger.error('Failed to lookup session', { message: sessionError.message, requestId });
       }
 
-      if (!sessionForTenant) {
+      if (!sessionData) {
         await ErrorAudit.apiError(undefined, '/api/widget/chat', 404, 'Session not found', requestId);
         TrialLogger.logRequest('POST', '/api/widget/chat', 404, Date.now() - startTime, { requestId });
         return NextResponse.json({ error: 'Session not found' }, { status: 404 });
       }
 
-      tenantId = sessionForTenant.tenant_id;
+      session = sessionData;
+      tenantId = session.tenant_id;
     }
 
     // Token Verification (Optional but enforced if provided)
@@ -148,8 +152,8 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
       try {
         const payload = verifyToken(token);
         if (tenantId && payload.tenantId !== tenantId) {
-           logger.warn('Token tenantId mismatch', { tokenTenant: payload.tenantId, sessionTenant: tenantId });
-           return NextResponse.json({ error: 'Unauthorized: Tenant mismatch' }, { status: 403 });
+          logger.warn('Token tenantId mismatch', { tokenTenant: payload.tenantId, sessionTenant: tenantId });
+          return NextResponse.json({ error: 'Unauthorized: Tenant mismatch' }, { status: 403 });
         }
       } catch (err) {
         logger.warn('Invalid token provided', { error: err instanceof Error ? err.message : err });
@@ -159,21 +163,21 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
 
     // Strict Trial Status Check
     if (tenantId) {
-       const { data: tenantStatus } = await supabase
+      const { data: tenantStatus } = await supabase
         .from('tenants')
         .select('status, expires_at')
         .eq('tenant_id', tenantId)
         .single();
-       
-       if (!tenantStatus) {
-          return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
-       }
-       if (tenantStatus.status !== 'active') {
-          return NextResponse.json({ error: 'Trial is not active' }, { status: 403 });
-       }
-       if (new Date(tenantStatus.expires_at) < new Date()) {
-          return NextResponse.json({ error: 'Trial has expired' }, { status: 403 });
-       }
+
+      if (!tenantStatus) {
+        return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
+      }
+      if (tenantStatus.status !== 'active') {
+        return NextResponse.json({ error: 'Trial is not active' }, { status: 403 });
+      }
+      if (new Date(tenantStatus.expires_at) < new Date()) {
+        return NextResponse.json({ error: 'Trial has expired' }, { status: 403 });
+      }
     }
 
     // Support batch queries: if body.messages (array) is present, use batching
@@ -211,22 +215,8 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
       return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 });
     }
 
-    // Get session
-    const { data: session } = await supabase
-      .from('chat_sessions')
-      .select('*, tenants(status, expires_at, metadata, industry_vertical)')
-      .eq('session_id', body.sessionId)
-      .single();
-
-    if (!session) {
-      if (tracker) await tracker.recordFailure(new Error('Session not found'), 404);
-      incrementMetric('chat_api_errors_total', 'Total chat API errors', { path: '/api/widget/chat', status: '404' });
-      await ErrorAudit.apiError(undefined, '/api/widget/chat', 404, 'Session not found', requestId);
-      TrialLogger.logRequest('POST', '/api/widget/chat', 404, Date.now() - startTime, { requestId, tenantId });
-      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
-    }
-
-    tenantId = session.tenant_id;
+    // Session was already fetched above with full tenant data
+    // Validate tenantId from the session we already have
     if (!tenantId) {
       logger.error('Session missing tenantId', { session });
       if (tracker) await tracker.recordFailure(new Error('Session missing tenantId'), 500);
@@ -235,8 +225,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
       return NextResponse.json({ error: 'Session missing tenantId' }, { status: 500 });
     }
 
-    // Integrate plan detection
-    const { getPlanDetector } = await import('@/lib/plan-detector');
+    // Integrate plan detection (using hoisted import)
     const planDetector = getPlanDetector();
     const tenantPlanConfig = await planDetector.getTenantPlan(tenantId);
 
@@ -271,12 +260,12 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
 
     // Healthcare Compliance Check
     if (tenant?.industry_vertical?.toLowerCase() === 'healthcare') {
-      const messageText = isBatch 
-        ? batchMessages.map(m => m.query).join(' ') 
+      const messageText = isBatch
+        ? batchMessages.map(m => m.query).join(' ')
         : (body as any).message || '';
-        
+
       const { detected, maskedText } = detectAndMaskPHI(messageText);
-      
+
       if (detected) {
         // For strict compliance, we might reject. For now, we'll mask and proceed.
         // If it's a batch, we'd need to mask each message individually.
@@ -288,7 +277,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
         } else {
           (body as any).message = maskedText;
         }
-        
+
         // Log the PHI detection event (without the actual PHI)
         console.log(`[Healthcare Compliance] PHI detected and masked for tenant ${tenantId}`);
       }
@@ -298,7 +287,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
     if (tenant?.industry_vertical?.toLowerCase() === 'legal') {
       const jurisdiction = tenant?.jurisdiction || 'US';
       legalDisclaimer = getLegalDisclaimer(jurisdiction);
-      
+
       if (isBatch) {
         batchMessages.forEach(msg => {
           if (!msg.metadata) msg.metadata = {};
@@ -319,7 +308,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
     if (tenant?.industry_vertical?.toLowerCase() === 'financial') {
       const { getFinancialDisclaimer, checkTransaction } = await import('@/lib/financial/compliance');
       financialDisclaimer = getFinancialDisclaimer();
-      
+
       if (isBatch) {
         batchMessages.forEach(msg => {
           if (!msg.metadata) msg.metadata = {};
@@ -373,7 +362,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
     // E-commerce: product search
     if (['ecommerce', 'retail', 'shop'].includes((tenant?.industry_vertical || '').toLowerCase())) {
       const { searchProducts } = await import('@/lib/ecommerce/products');
-      
+
       if (isBatch) {
         batchMessages.forEach(msg => {
           if (!msg.metadata) msg.metadata = {};
@@ -686,10 +675,19 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
 
       const context = documents.slice(0, 5).map((d: any, idx: number) => `Source [${idx + 1}] ${d.metadata?.title || ''}\n${d.pageContent}`).join('\n\n');
 
-      // Use fast-reflection streaming generator for low-latency token streaming
-      const { createFastReflection } = await import('@/lib/ai/fast-reflection');
-      const engine = createFastReflection(tenantId!, 'fast');
-      const streaming = await engine.generateStreaming(queryText, context);
+      // Use unified RAG pipeline with streaming
+      const { streamMcpHybridRagQuery } = await import('@/lib/ragPipeline');
+      const generator = streamMcpHybridRagQuery({
+        tenantId: tenantId!,
+        query: queryText,
+        k: 5,
+        llmProvider: 'groq',
+        llmModel: 'llama-3.3-70b-versatile', // Force main model
+        responseCharacterLimit: (body as any).responseCharacterLimit,
+      });
+
+      let finalResult: any = null;
+
 
       const encoder = new TextEncoder();
       let accumulated = '';
@@ -698,62 +696,92 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
       const stream = new ReadableStream({
         async start(controller) {
           try {
-            for await (const chunk of streaming.stream) {
-              accumulated += chunk;
-              tokenCount += 1;
-              const payload = { token: chunk, partial: accumulated };
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+            // Note: 'generator' is available from the scope above
+            for await (const chunk of generator) {
+              if (chunk.type === 'token') {
+                accumulated += chunk.token;
+                tokenCount += 1;
+                const payload = { token: chunk.token, partial: accumulated };
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+              } else if (chunk.type === 'meta') {
+                const payload = { metadata: { sources: chunk.sources } };
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+              } else if (chunk.type === 'done') {
+                finalResult = chunk;
+                const metadata = {
+                  ...chunk.metadata,
+                  legalDisclaimer,
+                  legalAnalysis,
+                  financialDisclaimer,
+                  transactionStatus,
+                  realEstateDisclaimer,
+                  propertyResults,
+                  productResults,
+                  confidence: chunk.confidence,
+                  sources: chunk.sources
+                };
+
+                const donePayload = {
+                  done: true,
+                  final: chunk.answer,
+                  confidence: chunk.confidence,
+                  metadata,
+                  sources: chunk.sources,
+                };
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(donePayload)}\n\n`));
+              }
             }
 
-            // Wait for reflection/finalization
-            const final = await streaming.finalResult;
-
-            const donePayload: any = {
-              done: true,
-              final: final.response,
-              confidence: final.confidence,
-              metadata: final.metadata,
-              sources,
-            };
-
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(donePayload)}\n\n`));
             controller.close();
 
-            // Persist messages and audits after streaming
-            const reply = final.response;
-            const tokensUsed = final.usage?.totalTokens ?? Math.ceil(reply.length / 4);
-            await ChatAudit.responseSent(tenantId!, body.sessionId, tokensUsed);
+            if (finalResult) {
+              const reply = finalResult.answer;
+              const usedTokens = finalResult.usage?.totalTokens ?? tokenCount;
 
-            const userMessage: ChatMessage = {
-              id: crypto.randomUUID(),
-              role: 'user',
-              content: (body as any).message,
-              timestamp: new Date().toISOString(),
-            };
-            const botMessage: ChatMessage = {
-              id: crypto.randomUUID(),
-              role: 'assistant',
-              content: reply,
-              timestamp: new Date().toISOString(),
-              metadata: {},
-            };
-            const updatedMessages = [...(session.messages || []), userMessage, botMessage];
+              await ChatAudit.responseSent(tenantId!, body.sessionId, usedTokens);
 
-            await supabase
-              .from('chat_sessions')
-              .update({ messages: updatedMessages, last_activity: new Date().toISOString() })
-              .eq('session_id', body.sessionId);
+              const userMessage: ChatMessage = {
+                id: crypto.randomUUID(),
+                role: 'user',
+                content: (body as any).message,
+                timestamp: new Date().toISOString(),
+              };
+              const botMessage: ChatMessage = {
+                id: crypto.randomUUID(),
+                role: 'assistant',
+                content: reply,
+                timestamp: new Date().toISOString(),
+                metadata: {
+                  legalDisclaimer,
+                  legalAnalysis,
+                  financialDisclaimer,
+                  transactionStatus,
+                  realEstateDisclaimer,
+                  propertyResults,
+                  productResults
+                },
+              };
+              const updatedMessages = [...(session.messages || []), userMessage, botMessage];
 
-            // Metrics
-            const { recordStreamingTokens, observeStreamingLatency } = await import('@/lib/monitoring/metrics');
-            recordStreamingTokens('/api/widget/chat', tokenCount);
-            observeStreamingLatency('/api/widget/chat', Date.now() - responseStartTime);
-            recordApiCall('/api/widget/chat', 200, Date.now() - responseStartTime);
-            recordChatApiMetrics('/api/widget/chat', 'POST', 200, Date.now() - responseStartTime);
+              await supabase
+                .from('chat_sessions')
+                .update({ messages: updatedMessages, last_activity: new Date().toISOString() })
+                .eq('session_id', body.sessionId);
+
+              const { recordStreamingTokens, observeStreamingLatency } = await import('@/lib/monitoring/metrics');
+              recordStreamingTokens('/api/widget/chat', tokenCount);
+              observeStreamingLatency('/api/widget/chat', Date.now() - responseStartTime);
+              recordApiCall('/api/widget/chat', 200, Date.now() - responseStartTime);
+              recordChatApiMetrics('/api/widget/chat', 'POST', 200, Date.now() - responseStartTime);
+            }
           } catch (err) {
+            console.error('Streaming API error:', err);
+            try {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'Streaming failed' })}\n\n`));
+            } catch (_) { }
             controller.error(err instanceof Error ? err : new Error('Streaming error'));
           } finally {
-            try { await retriever.close(); } catch (_) {}
+            try { await retriever.close(); } catch (_) { }
           }
         }
       });
@@ -772,7 +800,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
         query: `${planPromptModifiers.join('\n')}\n${(body as any).message}`,
         k: 5,
         llmProvider: 'groq',
-        llmModel: 'llama-3-groq-70b-8192-tool-use-preview',
+        llmModel: 'llama-3.3-70b-versatile',
         responseCharacterLimit: (body as any).responseCharacterLimit,
       });
       responseTime = Date.now() - responseStartTime;
@@ -791,15 +819,15 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
             partial += sentence + ' ';
             const payload: any = { token: sentence, partial };
             if (idx === sentences.length - 1) {
-               payload.metadata = {
-                  legalDisclaimer,
-                  legalAnalysis,
-                  financialDisclaimer,
-                  transactionStatus,
-                  realEstateDisclaimer,
-                  propertyResults,
-                  productResults
-               };
+              payload.metadata = {
+                legalDisclaimer,
+                legalAnalysis,
+                financialDisclaimer,
+                transactionStatus,
+                realEstateDisclaimer,
+                propertyResults,
+                productResults
+              };
             }
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
           });
@@ -808,7 +836,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
       });
       // Monitoring: record API call for streaming
       recordApiCall('/api/widget/chat', 200, responseTime);
-        recordChatApiMetrics('/api/widget/chat', 'POST', 200, responseTime);
+      recordChatApiMetrics('/api/widget/chat', 'POST', 200, responseTime);
       return new Response(stream, {
         headers: {
           'Content-Type': 'text/event-stream',
@@ -874,7 +902,7 @@ export async function POST(req: any, context: { params: Promise<{}> }) {
           confidence_score: typeof s.similarity === 'number' ? Math.max(0, Math.min(1, s.similarity)) : 0.5,
           metadata: s.metadata || {},
         }));
-          if (citationRecords.length > 0) {
+        if (citationRecords.length > 0) {
           // fire-and-forget but await to capture errors gracefully
           const _res = await trackCitations(citationRecords);
           if (!_res.success) {

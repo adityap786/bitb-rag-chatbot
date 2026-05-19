@@ -20,7 +20,7 @@ import { redis } from '../redis-client';
 // Types
 // ============================================================================
 
-export type TenantStatus = 
+export type TenantStatus =
   | 'pending'
   | 'provisioning'
   | 'active'
@@ -29,7 +29,7 @@ export type TenantStatus =
   | 'deprovisioning'
   | 'deleted';
 
-export type TenantPlan = 
+export type TenantPlan =
   | 'trial'
   | 'starter'
   | 'professional'
@@ -269,7 +269,7 @@ export class TenantManager {
 
       // Calculate trial expiry (3 days for trial plan)
       const plan = request.plan || 'trial';
-      const expiresAt = plan === 'trial' 
+      const expiresAt = plan === 'trial'
         ? new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString()
         : undefined;
 
@@ -504,7 +504,7 @@ export class TenantManager {
     }
 
     const usage = await this.getCurrentUsage(tenantId);
-    
+
     switch (operation) {
       case 'query': {
         const limit = config.quota.queries_per_day;
@@ -532,6 +532,191 @@ export class TenantManager {
   }
 
   /**
+   * Atomically reserve quota for an operation using Redis
+   * Prevents race conditions during concurrent uploads
+   * 
+   * @returns Reservation token if successful, or throws QuotaExceededError
+   */
+  async reserveQuota(
+    tenantId: string,
+    operation: 'query' | 'api_call' | 'file_upload' | 'embedding',
+    amount: number
+  ): Promise<{ reservationId: string; newCount: number }> {
+    const config = await this.getTenantConfig(tenantId);
+    if (!config) {
+      throw new Error('Tenant not found');
+    }
+
+    const periodStart = this.getPeriodStart();
+    const key = `quota:${tenantId}:${operation}:${periodStart}`;
+
+    // Get limit based on operation
+    let limit: number;
+    switch (operation) {
+      case 'query':
+        limit = config.quota.queries_per_day;
+        break;
+      case 'api_call':
+        limit = config.quota.api_calls_per_day;
+        break;
+      case 'file_upload':
+        limit = config.quota.file_uploads_per_day;
+        break;
+      case 'embedding':
+        limit = config.quota.embeddings_count;
+        break;
+      default:
+        limit = 999999;
+    }
+
+    if (redis) {
+      try {
+        const redisClient = redis as {
+          incrby(key: string, amount: number): Promise<number>;
+          expire(key: string, seconds: number): Promise<number>;
+          get(key: string): Promise<string | null>;
+        };
+
+
+        // Atomically increment the counter
+        const newCount = await redisClient.incrby(key, amount);
+
+        // Set expiry on first write
+        await redisClient.expire(key, 86400); // 24 hours
+
+        // Check if over limit
+        if (newCount > limit) {
+          // Rollback the reservation using incrby with negative value
+          await redisClient.incrby(key, -amount);
+
+          logger.warn('Quota exceeded (atomic check)', {
+            tenant_id: tenantId,
+            operation,
+            current: newCount - amount,
+            requested: amount,
+            limit,
+          });
+
+          throw new Error(`Quota exceeded: ${operation} limit is ${limit}, current usage would be ${newCount}`);
+        }
+
+        const reservationId = `${key}:${Date.now()}`;
+
+        logger.info('Quota reserved atomically', {
+          tenant_id: tenantId,
+          operation,
+          amount,
+          new_count: newCount,
+          limit,
+          reservation_id: reservationId,
+        });
+
+        return { reservationId, newCount };
+      } catch (error) {
+        logger.error('Failed to reserve quota', {
+          tenant_id: tenantId,
+          operation,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    }
+
+    // Fallback: Check quota without Redis (non-atomic, but better than nothing)
+    const quotaCheck = await this.checkQuota(tenantId, operation);
+    if (!quotaCheck.allowed || quotaCheck.remaining < amount) {
+      throw new Error(`Quota exceeded: ${operation} limit is ${limit}`);
+    }
+
+    return { reservationId: `fallback:${Date.now()}`, newCount: amount };
+  }
+
+  /**
+   * Release a quota reservation (rollback if operation failed)
+   */
+  async releaseQuota(
+    tenantId: string,
+    operation: 'query' | 'api_call' | 'file_upload' | 'embedding',
+    amount: number
+  ): Promise<void> {
+    if (!redis) return;
+
+    const periodStart = this.getPeriodStart();
+    const key = `quota:${tenantId}:${operation}:${periodStart}`;
+
+    try {
+      const redisClient = redis as {
+        incrby(key: string, amount: number): Promise<number>;
+      };
+
+      // Use incrby with negative value (equivalent to decrby)
+      await redisClient.incrby(key, -amount);
+
+      logger.info('Quota reservation released', {
+        tenant_id: tenantId,
+        operation,
+        amount,
+      });
+    } catch (error) {
+      logger.error('Failed to release quota', {
+        tenant_id: tenantId,
+        operation,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Sync Redis quota count to database (reconciliation)
+   */
+  async syncQuotaToDatabase(
+    tenantId: string,
+    operation: 'query' | 'api_call' | 'file_upload' | 'embedding'
+  ): Promise<void> {
+    if (!redis) return;
+
+    const periodStart = this.getPeriodStart();
+    const key = `quota:${tenantId}:${operation}:${periodStart}`;
+
+    try {
+      const redisClient = redis as {
+        get(key: string): Promise<string | null>;
+      };
+
+      const countStr = await redisClient.get(key);
+      if (!countStr) return;
+
+      const count = parseInt(countStr, 10);
+
+      const column = {
+        query: 'queries_used',
+        api_call: 'api_calls',
+        file_upload: 'file_uploads',
+        embedding: 'embeddings_count',
+      }[operation];
+
+      // Update database with Redis count
+      await this.db
+        .from('tenant_usage')
+        .update({ [column]: count })
+        .eq('tenant_id', tenantId)
+        .eq('period_start', periodStart);
+
+      logger.info('Quota synced to database', {
+        tenant_id: tenantId,
+        operation,
+        count,
+      });
+    } catch (error) {
+      logger.error('Failed to sync quota', {
+        tenant_id: tenantId,
+        operation,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
    * Increment usage counter
    */
   async incrementUsage(
@@ -540,7 +725,7 @@ export class TenantManager {
     amount: number = 1
   ): Promise<void> {
     const periodStart = this.getPeriodStart();
-    
+
     const column = {
       query: 'queries_used',
       api_call: 'api_calls',

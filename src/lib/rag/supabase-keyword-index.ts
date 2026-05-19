@@ -38,7 +38,11 @@ export class SupabaseKeywordIndex implements KeywordIndex {
       }
     }
     const { data, error } = await q.limit(topK);
-    if (error) throw error;
-    return data;
+    if (error) {
+      // Wrap Supabase error as proper Error instance
+      const errMsg = error.message || JSON.stringify(error);
+      throw new Error(`KeywordIndex query error: ${errMsg}`);
+    }
+    return data ?? [];
   }
 }

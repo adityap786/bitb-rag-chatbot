@@ -109,7 +109,7 @@ export async function handleRagQuery(
     .single();
 
   const llmProvider = trial?.llm_provider || 'groq';
-  const llmModel = trial?.llm_model || 'llama-3-groq-70b-8192-tool-use-preview';
+  const llmModel = trial?.llm_model || 'llama-3.3-70b-versatile';
 
   // Run hybrid search + LLM synthesis
   const ragResult = await mcpHybridRagQuery({

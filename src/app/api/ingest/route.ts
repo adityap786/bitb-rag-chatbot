@@ -61,9 +61,60 @@ export async function POST(request: any, context: { params: Promise<{}> }) {
       if (data_source.files.length > 5) {
         return NextResponse.json({ error: 'Maximum 5 files allowed' }, { status: 400 });
       }
+
+      // Import file validator
+      const { validateBase64File, isAllowedExtension } = await import('../../../lib/security/file-validator');
+
+      // Validate each file with enhanced security checks
       for (const file of data_source.files) {
         if (!file.name || !file.content_base64 || file.size > 10 * 1024 * 1024) {
           return NextResponse.json({ error: 'Invalid file: must be PDF, DOCX, TXT, HTML and <= 10MB' }, { status: 400 });
+        }
+
+        // Quick extension check
+        if (!isAllowedExtension(file.name)) {
+          return NextResponse.json({
+            error: `File type not allowed: ${file.name}`,
+            code: 'INVALID_FILE_TYPE',
+          }, { status: 400 });
+        }
+
+        // Full file validation (magic bytes, content analysis, XPIA detection)
+        const validation = await validateBase64File(file.content_base64, file.name, {
+          maxSizeBytes: 10 * 1024 * 1024,
+          allowedTypes: ['pdf', 'docx', 'txt', 'html', 'md', 'csv'],
+          sanitizeContent: true,
+          checkXPIA: true,
+          filenamePrefix: tenant_id,
+        });
+
+        if (!validation.valid) {
+          logger.warn('File validation failed', {
+            tenantId: tenant_id,
+            filename: file.name,
+            errors: validation.errors,
+            warnings: validation.warnings,
+          });
+          return NextResponse.json({
+            error: `File validation failed: ${validation.errors.join(', ')}`,
+            code: 'FILE_VALIDATION_FAILED',
+            warnings: validation.warnings,
+          }, { status: 400 });
+        }
+
+        // Log any XPIA warnings but don't block (allow with warning)
+        if (validation.warnings.length > 0) {
+          logger.warn('File validation warnings', {
+            tenantId: tenant_id,
+            filename: file.name,
+            warnings: validation.warnings,
+          });
+        }
+
+        // Update file with sanitized content if applicable
+        if (validation.sanitized && validation.sanitizedContent) {
+          file.content_base64 = validation.sanitizedContent.toString('base64');
+          file.name = validation.sanitizedFilename;
         }
       }
     }

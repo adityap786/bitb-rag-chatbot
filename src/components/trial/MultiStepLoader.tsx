@@ -59,15 +59,18 @@ export default function MultiStepLoader({
       setFinalMessage('Preparing your chatbot playground');
       setProgress(100);
       progressRef.current = 100;
-      onProgress?.(100);
-      onComplete?.();
+      // Defer callbacks to avoid setState during render
+      setTimeout(() => {
+        onProgress?.(100);
+        onComplete?.();
+      }, 0);
       channelRef.current?.postMessage({ jobId, event, origin: 'sse' });
       return;
     }
 
     if (event.type === 'pipeline.cancelled') {
       setConnectionError('Pipeline cancelled');
-      onFailure?.(event.message || 'Pipeline cancelled');
+      setTimeout(() => onFailure?.(event.message || 'Pipeline cancelled'), 0);
       channelRef.current?.postMessage({ jobId, event, origin: 'sse' });
       return;
     }
@@ -89,7 +92,8 @@ export default function MultiStepLoader({
       if (progressRef.current !== nextProgress) {
         progressRef.current = nextProgress;
         setProgress(nextProgress);
-        onProgress?.(nextProgress);
+        // Defer callback to avoid setState during render
+        setTimeout(() => onProgress?.(nextProgress), 0);
       }
 
       const running = INGESTION_STEP_ORDER.find((key) => next[key]?.status === 'running') ?? null;
@@ -101,16 +105,17 @@ export default function MultiStepLoader({
 
       if (event.step === 'done' && event.type === 'step.completed' && !completeRef.current) {
         completeRef.current = true;
-        onComplete?.();
+        setTimeout(() => onComplete?.(), 0);
       }
 
       if (event.type === 'step.failed') {
-        onFailure?.(event.message ?? 'Ingestion step failed.');
+        setTimeout(() => onFailure?.(event.message ?? 'Ingestion step failed.'), 0);
       }
 
       return next;
     });
   };
+
 
   useEffect(() => {
     setSteps(createInitialStepState());
@@ -120,8 +125,13 @@ export default function MultiStepLoader({
   useEffect(() => {
     setProgress(initialProgress);
     progressRef.current = initialProgress;
-    onProgress?.(initialProgress);
+    // Defer callback to avoid calling parent setState during MultiStepLoader render
+    const timeoutId = setTimeout(() => {
+      onProgress?.(initialProgress);
+    }, 0);
+    return () => clearTimeout(timeoutId);
   }, [initialProgress, onProgress]);
+
 
   useEffect(() => {
     if (!jobId || typeof window === 'undefined' || !('BroadcastChannel' in window)) return;
@@ -233,13 +243,12 @@ export default function MultiStepLoader({
         </div>
         <div className="flex items-center gap-2">
           <span
-            className={`h-2 w-2 rounded-full ${
-              connectionState === 'connected'
-                ? 'bg-emerald-400'
-                : connectionState === 'connecting'
-                  ? 'bg-amber-400 animate-pulse'
-                  : 'bg-rose-400'
-            }`}
+            className={`h-2 w-2 rounded-full ${connectionState === 'connected'
+              ? 'bg-emerald-400'
+              : connectionState === 'connecting'
+                ? 'bg-amber-400 animate-pulse'
+                : 'bg-rose-400'
+              }`}
           />
           <span className="text-xs font-semibold uppercase tracking-widest text-slate-300">
             {statusLabel}

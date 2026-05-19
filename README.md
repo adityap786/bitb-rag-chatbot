@@ -188,7 +188,18 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) to see the BiTB homepage.
 
-### 6. Test the Widget Locally
+### 6. Start the Ingestion Worker (Required for KB Processing)
+
+The ingestion worker processes knowledge base uploads and generates embeddings. Run in a separate terminal:
+
+```bash
+# Start the BullMQ-based ingestion worker
+npm run worker:ingest
+```
+
+> **Note**: The worker requires Redis. Set `REDIS_URL` or `BULLMQ_REDIS_URL` in your `.env.local`. For local development without Redis, ingestion will be processed synchronously.
+
+### 7. Test the Widget Locally
 
 The embeddable widget is available at:
 ```

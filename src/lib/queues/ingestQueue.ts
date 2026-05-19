@@ -1,9 +1,13 @@
-import { Queue, Worker, QueueScheduler, Job } from 'bullmq';
+// BullMQ v5: QueueScheduler is no longer needed - delayed jobs are handled automatically
+import { Queue, Worker, Job } from 'bullmq';
 import type { JobsOptions } from 'bullmq';
 import { createLazyServiceClient } from '../supabase-client';
 import { logger } from '../observability/logger';
 import { recordQueueJobMetrics, recordIngestionJobMetrics } from '../monitoring/metrics';
 import { createIngestionTrace } from '../observability/langfuse-client';
+import fs from 'fs/promises';
+import path from 'path';
+import { createHash } from 'crypto';
 
 type IngestionDataSource = {
   type: 'manual' | 'upload' | 'crawl';
@@ -13,6 +17,139 @@ type IngestionDataSource = {
   text?: string;
   [key: string]: unknown;
 };
+
+/**
+ * Syncs the output from the Python ingestion worker (local JSON) to the Supabase database.
+ * This bridges the gap between the Python worker (FAISS/Disk) and the RAG app (Supabase).
+ */
+async function syncPythonOutputToSupabase(
+  tenantId: string,
+  trialToken: string,
+  dataSource: IngestionDataSource
+) {
+  const metadataPath = path.join(process.cwd(), 'data', 'faiss_indices', `${trialToken}.metadata.json`);
+
+  try {
+    await fs.access(metadataPath);
+  } catch {
+    logger.warn('No metadata file found from Python worker, skipping sync', { tenantId, trialToken, path: metadataPath });
+    return;
+  }
+
+  const content = await fs.readFile(metadataPath, 'utf-8');
+  let chunks: any[];
+  try {
+    chunks = JSON.parse(content);
+  } catch (e) {
+    throw new Error(`Failed to parse metadata JSON: ${(e as Error).message}`);
+  }
+
+  if (!Array.isArray(chunks) || chunks.length === 0) {
+    logger.info('No chunks to sync', { tenantId });
+    return;
+  }
+
+  logger.info('Syncing Python output to Supabase', { tenantId, chunkCount: chunks.length });
+
+  // Group chunks by specific source (URL or File)
+  const grouped = new Map<string, typeof chunks>();
+  for (const chunk of chunks) {
+    const key = chunk.source_url || 'unknown';
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key)!.push(chunk);
+  }
+
+  for (const [sourceUrl, sourceChunks] of grouped.entries()) {
+    // 1. Create Knowledge Base Entry
+    // Approximate raw_text by joining chunks (not perfect, but better than empty)
+    const rawText = sourceChunks.map((c: any) => c.text).join('\n\n');
+    const contentHash = createHash('sha256').update(`${tenantId}|${rawText}`).digest('hex');
+
+    // Check existing
+    const { data: existingKb } = await supabase
+      .from('knowledge_base')
+      .select('kb_id')
+      .eq('tenant_id', tenantId)
+      .eq('content_hash', contentHash)
+      .maybeSingle();
+
+    let kbId = existingKb?.kb_id;
+
+    if (!kbId) {
+      const { data: newKb, error: kbError } = await supabase
+        .from('knowledge_base')
+        .insert({
+          tenant_id: tenantId,
+          source_type: dataSource.type,
+          content_hash: contentHash,
+          raw_text: rawText,
+          metadata: {
+            source: sourceUrl,
+            title: sourceChunks[0]?.metadata?.title || sourceUrl,
+            chunkCount: sourceChunks.length,
+            syncedFromPython: true,
+          },
+          processed_at: new Date().toISOString(),
+        })
+        .select('kb_id')
+        .single();
+
+      if (kbError) throw new Error(`Failed to create KB entry: ${kbError.message}`);
+      kbId = newKb.kb_id;
+    } else {
+      // KB exists. To ensure idempotency (and fix potential partial failures from previous runs),
+      // we clear existing embeddings for this KB before inserting the new batch.
+      // This guarantees we don't duplicate vectors for the same content.
+      const { error: deleteError } = await supabase
+        .from('embeddings')
+        .delete()
+        .eq('kb_id', kbId);
+
+      if (deleteError) {
+        logger.warn('Failed to clear existing embeddings during sync', { tenantId, kbId, error: deleteError.message });
+        // Proceeding might be risky (duplicates), but we'll try to insert anyway or throw?
+        // Throwing is safer for consistency.
+        throw new Error(`Failed to clear existing embeddings: ${deleteError.message}`);
+      }
+    }
+
+    // 2. Insert Embeddings
+    // Prepare records
+    const records = sourceChunks.map((chunk: any) => {
+      // Extract vector
+      const meta = chunk.metadata || {};
+      const embedding = meta.embedding_768 || meta.embedding_384;
+
+      // Remove vector from metadata to save space
+      const cleanMetadata = { ...meta };
+      delete cleanMetadata.embedding_768;
+      delete cleanMetadata.embedding_384;
+
+      if (!embedding) {
+        // Skip chunks without embeddings (shouldn't happen if worker worked)
+        return null;
+      }
+
+      return {
+        kb_id: kbId,
+        tenant_id: tenantId,
+        content: chunk.text,
+        embedding_768: embedding, // We assume 768 for now as per our previous fix
+        metadata: cleanMetadata,
+      };
+    }).filter(Boolean);
+
+    if (records.length > 0) {
+      // Insert in batches if needed, but for now single batch
+      const { error: embedError } = await supabase
+        .from('embeddings')
+        .insert(records as any[]); // Cast to any to avoid strict type checks on dynamic shapes
+
+      if (embedError) throw new Error(`Failed to insert embeddings: ${embedError.message}`);
+    }
+  }
+}
+
 
 export interface IngestionJobPayload {
   job_id: string;
@@ -90,7 +227,6 @@ function resolveBullmqConnection(): any {
 let redisConnection: any = undefined;
 let queueOptions: any = undefined;
 let ingestQueue: Queue<IngestionJobPayload> | null = null;
-let ingestScheduler: QueueScheduler | null = null;
 let ingestionWorker: Worker<IngestionJobPayload> | null = null;
 
 function ensureQueueSystem(): void {
@@ -110,7 +246,7 @@ function ensureQueueSystem(): void {
     };
   }
   if (!ingestQueue) ingestQueue = new Queue<IngestionJobPayload>('ingest', queueOptions);
-  if (!ingestScheduler) ingestScheduler = new QueueScheduler('ingest', queueOptions);
+  // BullMQ v5: QueueScheduler is no longer needed
 }
 
 const supabase = createLazyServiceClient();
@@ -221,8 +357,20 @@ async function processIngestJob(job: Job<IngestionJobPayload>) {
         logger.warn('Ingestion worker stderr', { job_id, stderr: logChunk });
       });
 
-      worker.on('close', (code) => {
+      worker.on('close', async (code) => {
         if (code === 0) {
+          try {
+            // SYNC: Read Python output and sync to Supabase (KB + Embeddings)
+            await syncPythonOutputToSupabase(tenant_id, trial_token, data_source);
+          } catch (syncErr) {
+            logger.error('Failed to sync Python ingestion output to Supabase', { job_id, error: syncErr instanceof Error ? syncErr.message : String(syncErr) });
+            // We don't fail the whole job? Or should we? 
+            // If we don't sync, the user sees nothing. We should probably fail or at least mark partial success.
+            // For now, let's treat it as a failure for the job so it can be retried or investigated.
+            reject(new Error(`Worker finished but sync failed: ${syncErr instanceof Error ? syncErr.message : String(syncErr)}`));
+            return;
+          }
+
           logger.info('Ingestion worker completed', { job_id, tenant_id });
           resolve(stdout);
         } else {
@@ -417,10 +565,8 @@ export function getIngestionQueue() {
   return ingestQueue!;
 }
 
-export function getIngestionSchedulerInstance() {
-  ensureQueueSystem();
-  return ingestScheduler!;
-}
+// BullMQ v5: QueueScheduler is deprecated and no longer needed
+// export function getIngestionSchedulerInstance() - REMOVED
 
 /**
  * Health check for queue system
@@ -444,7 +590,7 @@ export async function checkQueueHealth(): Promise<{
     const queueCounts = await ingestQueue!.getJobCounts();
 
     // Check worker status
-    const workerRunning = Boolean(ingestionWorker) && ingestionWorker.isRunning();
+    const workerRunning = ingestionWorker ? ingestionWorker.isRunning() : false;
 
     const healthy = redisHealthy && workerRunning;
 
@@ -488,11 +634,7 @@ export async function shutdownQueue(): Promise<void> {
       logger.info('Worker closed');
     }
 
-    // Close scheduler
-    if (ingestScheduler) {
-      await ingestScheduler.close();
-      logger.info('Scheduler closed');
-    }
+    // BullMQ v5: QueueScheduler is no longer needed
 
     // Close queue
     if (ingestQueue) {

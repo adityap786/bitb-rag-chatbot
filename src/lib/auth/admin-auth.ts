@@ -36,6 +36,9 @@ export interface AdminJWTPayload {
   sub: string; // user id
   email: string;
   role: 'super_admin' | 'admin' | 'viewer';
+  jti?: string; // JWT ID for token tracking
+  ip?: string; // IP address binding (optional)
+  ua_hash?: string; // User-Agent hash (optional)
   iat?: number;
   exp?: number;
 }
@@ -56,16 +59,32 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 
 /**
  * Generate access token (short-lived)
+ * @param user - Admin user object
+ * @param options - Optional IP and User-Agent for binding
  */
-export function generateAccessToken(user: AdminUser): string {
+export function generateAccessToken(
+  user: AdminUser,
+  options?: { ip?: string; userAgent?: string }
+): string {
+  // Generate unique JWT ID for token tracking
+  const jti = crypto.randomBytes(16).toString('hex');
+
+  // Hash User-Agent for fingerprinting (not stored raw for privacy)
+  const uaHash = options?.userAgent
+    ? crypto.createHash('sha256').update(options.userAgent).digest('hex').substring(0, 16)
+    : undefined;
+
   const payload: AdminJWTPayload = {
     sub: user.id,
     email: user.email,
     role: user.role,
+    jti,
+    ip: options?.ip,
+    ua_hash: uaHash,
   };
 
   return jwt.sign(payload, JWT_SECRET, {
-    expiresIn: ACCESS_TOKEN_EXPIRY,
+    expiresIn: process.env.NODE_ENV === 'production' ? '5m' : ACCESS_TOKEN_EXPIRY,
     algorithm: 'HS256',
     issuer: 'bitb-admin',
   });
@@ -114,11 +133,11 @@ export function verifyRefreshToken(token: string): { sub: string } | null {
       algorithms: ['HS256'],
       issuer: 'bitb-admin',
     }) as { sub: string; type: string };
-    
+
     if (decoded.type !== 'refresh') {
       return null;
     }
-    
+
     return { sub: decoded.sub };
   } catch (error) {
     logger.warn('Refresh token verification failed', {

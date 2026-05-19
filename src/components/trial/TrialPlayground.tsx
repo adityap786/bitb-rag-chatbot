@@ -86,11 +86,22 @@ export default function TrialPlayground({
   tenantId?: string;
 }) {
   const primary = normalizeHexColor(formData.primaryColor) || '#6366f1';
-  const secondary = normalizeHexColor(formData.secondaryColor) || primary;
-  const primaryText = isLightHex(primary) ? 'black' : 'white';
-  const secondaryText = isLightHex(secondary) ? 'black' : 'white';
-  const secondaryBorder = hexToRgba(secondary, 0.35) || 'rgba(255,255,255,0.2)';
-  const primaryFillSoft = hexToRgba(primary, 0.18) || 'rgba(255,255,255,0.12)';
+  const secondary = normalizeHexColor(formData.secondaryColor) || '#ffffff';
+  const primaryText = isLightHex(primary) ? '#1a1a1a' : '#ffffff';
+  const secondaryBgSoft = hexToRgba(secondary, 0.08) || 'rgba(255,255,255,0.08)';
+  const borderColor = hexToRgba(secondary, 0.2) || 'rgba(255,255,255,0.2)';
+
+  // CSS Variables for container-level theming
+  const themeStyles = {
+    '--chatbot-bg': primary,
+    '--chatbot-text': secondary,
+    '--chatbot-text-primary': primaryText,
+    '--chatbot-border': borderColor,
+    '--chatbot-accent': hexToRgba(secondary, 0.15) || 'rgba(255,255,255,0.15)',
+    '--chatbot-input-bg': hexToRgba(primary, 0.6) || 'rgba(0,0,0,0.6)',
+    '--chatbot-msg-user': secondaryBgSoft,
+    '--chatbot-msg-assistant': hexToRgba(primary, 0.8) || 'rgba(0,0,0,0.8)',
+  } as React.CSSProperties;
 
   const [inputValue, setInputValue] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -108,6 +119,7 @@ export default function TrialPlayground({
   const readyTimerRef = useRef<NodeJS.Timeout | null>(null);
   const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
   const didHydrateRef = useRef(false);
+  const shouldScrollRef = useRef(false); // Only scroll when user sends a message
 
   // Rehydrate playground state after reload (session-scoped).
   useEffect(() => {
@@ -170,7 +182,41 @@ export default function TrialPlayground({
     let cancelled = false;
     let retryCount = 0;
     const maxRetries = 20; // Stop after ~30 seconds
-    
+    let hasTriedPipelineRetry = false; // Prevent infinite retry loops
+
+    const triggerPipelineRetry = async () => {
+      if (hasTriedPipelineRetry) return false;
+      hasTriedPipelineRetry = true;
+
+      console.log('[TrialPlayground] Triggering pipeline retry due to canRetry=true');
+      try {
+        const res = await fetch(`/api/tenants/${effectiveTenantId}/ingest`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${trialToken}`,
+          },
+          body: JSON.stringify({
+            source: 'retry',
+            metadata: { reason: 'playground_auto_retry' },
+          }),
+        });
+
+        if (res.ok || res.status === 409) {
+          console.log('[TrialPlayground] Pipeline retry triggered successfully');
+          // Reset retry count to give the new job time to complete
+          retryCount = 0;
+          return true;
+        } else {
+          console.warn('[TrialPlayground] Pipeline retry failed:', res.status);
+          return false;
+        }
+      } catch (err) {
+        console.error('[TrialPlayground] Pipeline retry error:', err);
+        return false;
+      }
+    };
+
     const checkReadiness = async () => {
       if (cancelled || retryCount >= maxRetries) {
         if (retryCount >= maxRetries) {
@@ -179,7 +225,7 @@ export default function TrialPlayground({
         }
         return;
       }
-      
+
       try {
         console.log(`[TrialPlayground] Readiness check ${retryCount + 1}/${maxRetries}`);
         const res = await fetch(`/api/tenants/${effectiveTenantId}/pipeline-ready`, {
@@ -202,6 +248,19 @@ export default function TrialPlayground({
             readyTimerRef.current = setTimeout(() => setPipelineReady(true), 800);
           } else {
             setPipelineReady(false);
+
+            // Check if we should trigger a pipeline retry
+            // canRetry=true means job completed with 0 vectors but KB has content
+            if (data.canRetry && !hasTriedPipelineRetry) {
+              console.log('[TrialPlayground] canRetry=true detected, triggering pipeline retry');
+              const triggered = await triggerPipelineRetry();
+              if (triggered) {
+                // Immediately recheck after triggering retry
+                if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+                retryTimerRef.current = setTimeout(checkReadiness, 2000);
+                return;
+              }
+            }
           }
           if (!data.ready) {
             retryCount++;
@@ -238,10 +297,16 @@ export default function TrialPlayground({
     };
   }, [tenantId, trialToken]);
 
-  // Auto-scroll to bottom when messages change
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+
+
+
+  // Auto-scroll disabled - user controls scrolling manually
+  // useEffect(() => {
+  //   if (shouldScrollRef.current) {
+  //     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  //     shouldScrollRef.current = false;
+  //   }
+  // }, [messages]);
 
   // Focus input on mount
   useEffect(() => {
@@ -268,6 +333,7 @@ export default function TrialPlayground({
     setMessages(prev => [...prev, userMessage]);
     setInputValue('');
     setIsLoading(true);
+    shouldScrollRef.current = true; // Trigger scroll when user sends message
 
     const startTime = Date.now();
 
@@ -388,9 +454,9 @@ export default function TrialPlayground({
   // Show loading state while checking pipeline readiness
   if (pipelineReady === null && !readinessError) {
     return (
-      <div className="relative space-y-4 bg-black min-h-[600px] text-white flex flex-col items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin" style={{ color: primary }} />
-        <p className="text-white/70 text-sm">Checking pipeline readiness...</p>
+      <div className="relative space-y-4 min-h-[600px] flex flex-col items-center justify-center rounded-2xl" style={{ ...themeStyles, backgroundColor: 'var(--chatbot-bg)', color: 'var(--chatbot-text)' }}>
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: 'var(--chatbot-text)' }} />
+        <p className="text-sm opacity-70">Checking pipeline readiness...</p>
       </div>
     );
   }
@@ -398,10 +464,10 @@ export default function TrialPlayground({
   // Show error state
   if (readinessError) {
     return (
-      <div className="relative space-y-4 bg-black min-h-[600px] text-white flex flex-col items-center justify-center">
+      <div className="relative space-y-4 min-h-[600px] flex flex-col items-center justify-center rounded-2xl" style={{ ...themeStyles, backgroundColor: 'var(--chatbot-bg)', color: 'var(--chatbot-text)' }}>
         <div className="text-rose-400 text-center">
           <p className="font-semibold">Unable to check readiness</p>
-          <p className="text-sm text-white/60 mt-1">{readinessError}</p>
+          <p className="text-sm opacity-60 mt-1">{readinessError}</p>
         </div>
       </div>
     );
@@ -410,25 +476,32 @@ export default function TrialPlayground({
   // Show not-ready state with polling indicator
   if (pipelineReady === false) {
     return (
-      <div className="relative space-y-4 bg-black min-h-[600px] text-white flex flex-col items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin" style={{ color: secondary }} />
+      <div className="relative space-y-4 min-h-[600px] flex flex-col items-center justify-center rounded-2xl" style={{ ...themeStyles, backgroundColor: 'var(--chatbot-bg)', color: 'var(--chatbot-text)' }}>
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: 'var(--chatbot-text)' }} />
         <div className="text-center">
           <p className="font-semibold text-amber-300">Your knowledge base is still processing</p>
-          <p className="text-sm text-white/60 mt-1">The Playground will activate automatically once ready...</p>
+          <p className="text-sm opacity-60 mt-1">The Playground will activate automatically once ready...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="relative space-y-4 bg-black min-h-[600px] text-white">
+    <div
+      className="relative space-y-4 min-h-[600px] rounded-2xl"
+      style={{
+        ...themeStyles,
+        backgroundColor: 'var(--chatbot-bg)',
+        color: 'var(--chatbot-text)'
+      }}
+    >
       {/* Header with stats */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between p-4">
         <div className="flex items-center gap-2">
-          <Sparkles className="w-5 h-5" style={{ color: secondary }} />
-          <label className="text-sm font-semibold text-white">AI Playground</label>
+          <Sparkles className="w-5 h-5" />
+          <label className="text-sm font-semibold">AI Playground</label>
         </div>
-        <div className="flex items-center gap-3 text-xs text-white/60">
+        <div className="flex items-center gap-3 text-xs opacity-60">
           {totalQueries > 0 && (
             <>
               <span className="flex items-center gap-1">
@@ -442,10 +515,7 @@ export default function TrialPlayground({
             </>
           )}
           {llmInfo && (
-            <span
-              className="px-2 py-0.5 rounded text-[10px] font-medium"
-              style={{ backgroundColor: primaryFillSoft, color: secondary }}
-            >
+            <span className="px-2 py-0.5 rounded text-[10px] font-medium" style={{ backgroundColor: 'var(--chatbot-accent)' }}>
               {llmInfo.provider || 'AI'} {llmInfo.model ? `• ${llmInfo.model.split('-').slice(0, 2).join('-')}` : ''}
             </span>
           )}
@@ -453,23 +523,21 @@ export default function TrialPlayground({
       </div>
 
       {/* Chat Container */}
-      <div className="relative rounded-2xl border border-white/10 bg-black overflow-hidden shadow-2xl">
+      <div className="relative rounded-2xl overflow-hidden shadow-2xl mx-4" style={{ border: '1px solid var(--chatbot-border)' }}>
         <div className="w-full max-w-full">
-          <div className="w-full rounded-t-2xl overflow-hidden border-b border-white/10 bg-black">
+          <div className="w-full rounded-t-2xl overflow-hidden" style={{ borderBottom: '1px solid var(--chatbot-border)' }}>
             {/* Widget Header */}
-            <div
-              className="flex items-center justify-between px-4 py-3 text-white bg-black"
-            >
+            <div className="flex items-center justify-between px-4 py-3">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-xl shadow-inner text-white">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center text-xl shadow-inner" style={{ backgroundColor: 'var(--chatbot-accent)' }}>
                   💬
                 </div>
                 <div>
                   <span className="font-bold text-base">{formData.chatName || 'Support Assistant'}</span>
-                  <div className="flex items-center gap-1.5 text-xs text-white/80">
+                  <div className="flex items-center gap-1.5 text-xs opacity-80">
                     <div
                       className="w-2 h-2 rounded-full animate-pulse shadow-lg"
-                      style={{ backgroundColor: secondary, boxShadow: `0 0 12px ${hexToRgba(secondary, 0.45) || 'rgba(255,255,255,0.35)'}` }}
+                      style={{ backgroundColor: 'var(--chatbot-text)', boxShadow: '0 0 12px var(--chatbot-accent)' }}
                     />
                     <span>Online • Powered by RAG</span>
                   </div>
@@ -477,38 +545,52 @@ export default function TrialPlayground({
               </div>
               <button
                 onClick={handleClearChat}
-                className="p-2 rounded-full hover:bg-white/20 transition-colors"
+                className="p-2 rounded-full hover:opacity-70 transition-colors"
                 title="Clear chat"
               >
                 <RefreshCw className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Chat Messages Area */}
-            <div className="h-[380px] bg-black overflow-y-auto">
-              <div className="p-4 space-y-4">
+            {/* Chat Messages Area - Hidden scrollbar on desktop, visible on mobile/tablet */}
+            <div
+              className="h-[380px] overflow-y-auto"
+              style={{
+                // Hide scrollbar on desktop (webkit browsers)
+                scrollbarWidth: 'none', // Firefox
+                msOverflowStyle: 'none', // IE/Edge
+              }}
+            >
+              <style>{`
+                @media (min-width: 1024px) {
+                  .chat-messages-area::-webkit-scrollbar {
+                    display: none;
+                  }
+                }
+              `}</style>
+              <div className="p-4 space-y-4 chat-messages-area" style={{ scrollbarWidth: 'none' }}>
                 {/* Welcome message */}
                 <div className="flex gap-3">
-                  <div 
-                    className="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-bold shadow-md"
-                    style={{ backgroundColor: primary, color: primaryText }}
+                  <div
+                    className="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-bold shadow-md opacity-80"
+                    style={{ backgroundColor: 'var(--chatbot-accent)' }}
                   >
                     AI
                   </div>
                   <div className="flex-1">
-                    <div className="bg-black border border-white/20 rounded-2xl rounded-tl-none p-4 shadow-sm text-sm text-white">
+                    <div className="rounded-2xl p-4 shadow-sm text-sm" style={{ backgroundColor: 'var(--chatbot-msg-assistant)', border: '1px solid var(--chatbot-border)', borderRadius: '0 1rem 1rem 1rem' }}>
                       <p className="mb-3">
                         👋 Hi! I'm <strong>{formData.chatName || 'Support Assistant'}</strong>. I've been trained on your knowledge base and I'm ready to help!
                       </p>
-                      <p className="text-gray-600 text-xs mb-3">Try one of these questions or ask your own:</p>
+                      <p className="text-xs mb-3 opacity-60">Try one of these questions or ask your own:</p>
                       <div className="flex flex-wrap gap-2">
                         {SUGGESTED_QUESTIONS.map((q, i) => (
                           <button
                             key={i}
                             onClick={() => handleSuggestedQuestion(q)}
                             disabled={isLoading}
-                            className="text-xs px-3 py-1.5 rounded-full border bg-black hover:bg-white/10 transition-all text-white disabled:opacity-50"
-                            style={{ borderColor: secondaryBorder }}
+                            className="text-xs px-3 py-1.5 rounded-full hover:opacity-80 transition-all disabled:opacity-50"
+                            style={{ border: '1px solid var(--chatbot-border)', backgroundColor: 'var(--chatbot-accent)' }}
                           >
                             {q}
                           </button>
@@ -525,25 +607,21 @@ export default function TrialPlayground({
                     className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : ''}`}
                   >
                     {msg.role === 'assistant' && (
-                      <div 
-                        className="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-bold shadow-md"
-                        style={{ backgroundColor: primary, color: primaryText }}
+                      <div
+                        className="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-bold shadow-md opacity-80"
+                        style={{ backgroundColor: 'var(--chatbot-accent)' }}
                       >
                         AI
                       </div>
                     )}
                     <div className={`flex-1 ${msg.role === 'user' ? 'flex justify-end' : ''}`}>
                       <div
-                        className={`relative group max-w-[85%] rounded-2xl p-4 shadow-sm text-sm ${
-                          msg.role === 'user'
-                            ? 'bg-white/20 text-white rounded-tr-none'
-                            : 'bg-black border border-white/20 text-white rounded-tl-none'
-                        }`}
-                        style={
-                          msg.role === 'user'
-                            ? { backgroundColor: primaryFillSoft, color: secondaryText }
-                            : undefined
-                        }
+                        className="relative group max-w-[85%] rounded-2xl p-4 shadow-sm text-sm"
+                        style={{
+                          backgroundColor: msg.role === 'user' ? 'var(--chatbot-msg-user)' : 'var(--chatbot-msg-assistant)',
+                          borderRadius: msg.role === 'user' ? '1rem 0 1rem 1rem' : '0 1rem 1rem 1rem',
+                          border: '1px solid var(--chatbot-border)',
+                        }}
                       >
                         <div className="whitespace-pre-wrap">{msg.content}</div>
 
@@ -579,18 +657,16 @@ export default function TrialPlayground({
                                 </button>
                                 <button
                                   onClick={() => handleFeedback(msg.id, 'up')}
-                                  className={`p-1.5 rounded hover:bg-white/10 transition-colors ${
-                                    msg.feedback === 'up' ? 'bg-emerald-500/10' : ''
-                                  }`}
+                                  className={`p-1.5 rounded hover:bg-white/10 transition-colors ${msg.feedback === 'up' ? 'bg-emerald-500/10' : ''
+                                    }`}
                                   title="Good response"
                                 >
                                   <ThumbsUp className={`w-3.5 h-3.5 ${msg.feedback === 'up' ? 'text-emerald-500' : 'text-gray-400'}`} />
                                 </button>
                                 <button
                                   onClick={() => handleFeedback(msg.id, 'down')}
-                                  className={`p-1.5 rounded hover:bg-white/10 transition-colors ${
-                                    msg.feedback === 'down' ? 'bg-red-500/10' : ''
-                                  }`}
+                                  className={`p-1.5 rounded hover:bg-white/10 transition-colors ${msg.feedback === 'down' ? 'bg-red-500/10' : ''
+                                    }`}
                                   title="Poor response"
                                 >
                                   <ThumbsDown className={`w-3.5 h-3.5 ${msg.feedback === 'down' ? 'text-red-500' : 'text-gray-400'}`} />
@@ -637,18 +713,18 @@ export default function TrialPlayground({
                 {/* Loading indicator */}
                 {isLoading && (
                   <div className="flex gap-3">
-                    <div 
-                      className="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-bold shadow-md animate-pulse"
-                      style={{ backgroundColor: primary, color: primaryText }}
+                    <div
+                      className="w-9 h-9 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-bold shadow-md animate-pulse opacity-80"
+                      style={{ backgroundColor: 'var(--chatbot-accent)' }}
                     >
                       AI
                     </div>
-                    <div className="bg-black rounded-2xl rounded-tl-none p-4 shadow-sm border border-white/20">
-                      <div className="flex items-center gap-2 text-sm text-white/60">
+                    <div className="rounded-2xl p-4 shadow-sm" style={{ backgroundColor: 'var(--chatbot-msg-assistant)', border: '1px solid var(--chatbot-border)', borderRadius: '0 1rem 1rem 1rem' }}>
+                      <div className="flex items-center gap-2 text-sm opacity-60">
                         <div className="flex gap-1">
-                          <span className="w-2 h-2 rounded-full animate-bounce" style={{ animationDelay: '0ms', backgroundColor: secondary }} />
-                          <span className="w-2 h-2 rounded-full animate-bounce" style={{ animationDelay: '150ms', backgroundColor: secondary }} />
-                          <span className="w-2 h-2 rounded-full animate-bounce" style={{ animationDelay: '300ms', backgroundColor: secondary }} />
+                          <span className="w-2 h-2 rounded-full animate-bounce" style={{ animationDelay: '0ms', backgroundColor: 'var(--chatbot-text)' }} />
+                          <span className="w-2 h-2 rounded-full animate-bounce" style={{ animationDelay: '150ms', backgroundColor: 'var(--chatbot-text)' }} />
+                          <span className="w-2 h-2 rounded-full animate-bounce" style={{ animationDelay: '300ms', backgroundColor: 'var(--chatbot-text)' }} />
                         </div>
                         <span className="text-xs">Searching knowledge base...</span>
                       </div>
@@ -661,7 +737,7 @@ export default function TrialPlayground({
             </div>
 
             {/* Chat Input */}
-            <div className="p-4 bg-black border-t border-white/20">
+            <div className="p-4" style={{ backgroundColor: 'var(--chatbot-input-bg)', borderTop: '1px solid var(--chatbot-border)' }}>
               <div className="flex gap-2">
                 <label htmlFor="chat-query" className="sr-only">Ask anything about your content</label>
                 <input
@@ -674,15 +750,19 @@ export default function TrialPlayground({
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  className="flex-1 px-4 py-3 border border-white/20 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-opacity-50 text-white placeholder-white/40 bg-black transition-all"
-                  style={{ '--tw-ring-color': secondary } as any}
+                  className="flex-1 px-4 py-3 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-opacity-50 placeholder-current/40 transition-all"
+                  style={{
+                    border: '1px solid var(--chatbot-border)',
+                    backgroundColor: 'var(--chatbot-msg-assistant)',
+                    color: 'inherit'
+                  }}
                   disabled={isLoading || !pipelineReady}
                 />
                 <button
                   onClick={() => handleSendMessage()}
                   disabled={isLoading || !inputValue.trim() || !pipelineReady}
-                  className="px-5 py-3 rounded-xl text-white font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 active:scale-95 flex items-center gap-2 shadow-lg"
-                  style={{ backgroundColor: primaryFillSoft, color: 'white' }}
+                  className="px-5 py-3 rounded-xl font-medium text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 active:scale-95 flex items-center gap-2 shadow-lg"
+                  style={{ backgroundColor: 'var(--chatbot-accent)', color: 'inherit' }}
                 >
                   {isLoading ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -693,7 +773,7 @@ export default function TrialPlayground({
                 </button>
               </div>
               <div className="mt-2 text-center">
-                <span className="text-[10px] text-white/40">
+                <span className="text-[10px] opacity-40">
                   Powered by hybrid RAG • Responses are AI-generated
                 </span>
                 {serverHint && (

@@ -75,17 +75,9 @@ export default function TrialOnboardingWizard() {
   const [error, setError] = useState<string | null>(null);
   const [kbMethod, setKbMethod] = useState<'upload' | 'manual'>('manual');
   const [companyInfo, setCompanyInfo] = useState('');
-  const [platform, setPlatform] = useState('playground');
   const [knowledgeBaseSources, setKnowledgeBaseSources] = useState<string[]>([]);
   const [framework, setFramework] = useState('react');
-  const [hosting, setHosting] = useState('');  
   const [logoUrl, setLogoUrl] = useState('');
-
-  // Website URL detection state
-  const [websiteUrl, setWebsiteUrl] = useState('');
-  const [detecting, setDetecting] = useState(false);
-  const [detectedPlatform, setDetectedPlatform] = useState<{ name: string; confidence: number; evidence: string[] } | null>(null);
-  const [detectionError, setDetectionError] = useState<string | null>(null);
 
   // Full-screen loader state
   const [showFullScreenLoader, setShowFullScreenLoader] = useState(false);
@@ -110,10 +102,9 @@ export default function TrialOnboardingWizard() {
       }
       if (typeof parsed?.kbMethod === 'string') setKbMethod(parsed.kbMethod);
       if (typeof parsed?.companyInfo === 'string') setCompanyInfo(parsed.companyInfo);
-      if (typeof parsed?.platform === 'string') setPlatform(parsed.platform);
+
       if (Array.isArray(parsed?.knowledgeBaseSources)) setKnowledgeBaseSources(parsed.knowledgeBaseSources);
       if (typeof parsed?.framework === 'string') setFramework(parsed.framework);
-      if (typeof parsed?.hosting === 'string') setHosting(parsed.hosting);
       if (typeof parsed?.logoUrl === 'string') setLogoUrl(parsed.logoUrl);
 
       if (typeof parsed?.ingestionJobId === 'string' || parsed?.ingestionJobId === null) {
@@ -126,6 +117,14 @@ export default function TrialOnboardingWizard() {
       if (typeof parsed?.trialExpired === 'boolean') setTrialExpired(parsed.trialExpired);
       if (typeof parsed?.trialExpiryMessage === 'string' || parsed?.trialExpiryMessage === null) {
         setTrialExpiryMessage(parsed.trialExpiryMessage);
+      }
+      // Rehydrate loader state for pipeline processing
+      if (typeof parsed?.showFullScreenLoader === 'boolean') setShowFullScreenLoader(parsed.showFullScreenLoader);
+      if (typeof parsed?.loaderStep === 'number') setLoaderStep(parsed.loaderStep);
+
+      // Auto-show loader if pipeline was processing on refresh
+      if (parsed?.ingestionStatus === 'processing' && parsed?.ingestionJobId) {
+        setShowFullScreenLoader(true);
       }
     } catch {
       // Ignore malformed session data
@@ -141,16 +140,16 @@ export default function TrialOnboardingWizard() {
         state,
         kbMethod,
         companyInfo,
-        platform,
         knowledgeBaseSources,
         framework,
-        hosting,
         logoUrl,
         ingestionJobId,
         ingestionProgress,
         ingestionStatus,
         trialExpired,
         trialExpiryMessage,
+        showFullScreenLoader,
+        loaderStep,
       };
       window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     } catch {
@@ -160,16 +159,16 @@ export default function TrialOnboardingWizard() {
     state,
     kbMethod,
     companyInfo,
-    platform,
     knowledgeBaseSources,
     framework,
-    hosting,
     logoUrl,
     ingestionJobId,
     ingestionProgress,
     ingestionStatus,
     trialExpired,
     trialExpiryMessage,
+    showFullScreenLoader,
+    loaderStep,
   ]);
 
   // If we're mid-flow and processing but missing a job id (or after reload), recover last job id.
@@ -206,43 +205,7 @@ export default function TrialOnboardingWizard() {
     };
   }, [state.tenantId, state.setupToken, state.step, ingestionJobId]);
 
-  // Website URL platform detection function
-  const detectPlatform = async () => {
-    if (!websiteUrl.trim()) return;
-    
-    setDetecting(true);
-    setDetectionError(null);
-    setDetectedPlatform(null);
-    
-    try {
-      const res = await fetch('/api/onboarding/detect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: websiteUrl.trim() }),
-      });
-      
-      const data = await res.json();
-      
-      if (!res.ok) {
-        throw new Error(data?.error || 'Failed to detect platform');
-      }
-      
-      if (data.candidates && data.candidates.length > 0) {
-        const best = data.candidates[0];
-        setDetectedPlatform(best);
-        // Auto-set framework based on detection
-        if (best.name.toLowerCase().includes('next')) setFramework('nextjs');
-        else if (best.name.toLowerCase().includes('react')) setFramework('react');
-        else if (best.name.toLowerCase().includes('svelte')) setFramework('svelte');
-      } else {
-        setDetectionError('No platform detected. You can select manually below.');
-      }
-    } catch (err: any) {
-      setDetectionError(err?.message || 'Detection failed');
-    } finally {
-      setDetecting(false);
-    }
-  };
+
 
   // Polling Effect
   useEffect(() => {
@@ -259,14 +222,14 @@ export default function TrialOnboardingWizard() {
           const data = await res.json();
           setIngestionProgress(data.progress);
           setIngestionStatus(data.status);
-          
+
           if (data.status === 'completed') {
-             // Auto-retry generation to get the code
-             handleGenerateWidget(); 
+            // Auto-retry generation to get the code
+            handleGenerateWidget();
           } else if (data.status === 'failed') {
-             setError(data.error_message || 'Ingestion failed');
-             setLoading(false);
-             setIngestionStatus('failed');
+            setError(data.error_message || 'Ingestion failed');
+            setLoading(false);
+            setIngestionStatus('failed');
           }
         } else if (res.status === 401 || res.status === 403) {
           // Token expired or invalid
@@ -346,7 +309,7 @@ export default function TrialOnboardingWizard() {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${state.setupToken}`,
           },
-            body: JSON.stringify({ companyInfo, knowledgeBaseSources }),
+          body: JSON.stringify({ companyInfo, knowledgeBaseSources }),
         });
 
         if (!response.ok) {
@@ -384,10 +347,8 @@ export default function TrialOnboardingWizard() {
         body: JSON.stringify({
           source: kbMethod,
           metadata: {
-            platform,
             businessType: state.businessType,
             framework,
-            hosting,
             logoUrl,
             knowledgeBaseSources,
           },
@@ -447,9 +408,7 @@ export default function TrialOnboardingWizard() {
           secondaryColor: state.secondaryColor,
           tone: state.chatTone,
           welcomeMessage: state.welcomeMessage,
-          platform,
           framework,
-          hosting,
           logoUrl,
           knowledgeBaseSources,
         }),
@@ -460,6 +419,23 @@ export default function TrialOnboardingWizard() {
       if (!response.ok) {
         const data = await response.json();
         throw new Error(data.error || 'Failed to save branding');
+      }
+
+      // Emit branding update for Playground tabs to pick up
+      try {
+        const bc = new BroadcastChannel('bitb_branding_update');
+        bc.postMessage({
+          type: 'branding_updated',
+          tenantId: state.tenantId,
+          primaryColor: state.primaryColor,
+          secondaryColor: state.secondaryColor,
+          chatTone: state.chatTone,
+          welcomeMessage: state.welcomeMessage,
+          logoUrl,
+        });
+        bc.close();
+      } catch {
+        // BroadcastChannel not supported, ignore
       }
 
       const data = await response.json();
@@ -671,472 +647,363 @@ export default function TrialOnboardingWizard() {
                   transition={{ type: 'spring', stiffness: 300 }}
                 >
                   <motion.div
-                    className={`w-14 h-14 rounded-full flex items-center justify-center mb-2 shadow-lg border-2 ${
-                    isCompleted
+                    className={`w-14 h-14 rounded-full flex items-center justify-center mb-2 shadow-lg border-2 ${isCompleted
                       ? 'bg-gradient-to-br from-green-400 to-emerald-600 text-white border-green-400'
                       : isActive
-                      ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white border-indigo-400'
-                      : 'bg-gradient-to-br from-gray-800 to-gray-700 text-gray-400 border-gray-600'
-                  }`}
-                  initial={{ scale: 0.9 }}
-                  animate={{ scale: 1 }}
-                  transition={{ type: 'spring', stiffness: 300 }}
-                >
-                  {isCompleted ? <CheckCircle2 className="w-7 h-7" /> : <Icon className="w-7 h-7" />}
+                        ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white border-indigo-400'
+                        : 'bg-gradient-to-br from-gray-800 to-gray-700 text-gray-400 border-gray-600'
+                      }`}
+                    initial={{ scale: 0.9 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: 'spring', stiffness: 300 }}
+                  >
+                    {isCompleted ? <CheckCircle2 className="w-7 h-7" /> : <Icon className="w-7 h-7" />}
+                  </motion.div>
+                  <span className={`text-base font-semibold ${isActive ? 'text-indigo-300' : 'text-gray-400'}`}>
+                    {step.title}
+                  </span>
                 </motion.div>
-                <span className={`text-base font-semibold ${isActive ? 'text-indigo-300' : 'text-gray-400'}`}>
-                  {step.title}
-                </span>
-              </motion.div>
-            );
-          })}
-        </motion.div>
-
-        {/* Error Alert */}
-        <AnimatePresence>
-          {error && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.3 }}
-            >
-              <Alert variant="destructive" className="mb-6">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Step 1: Get Started */}
-        <AnimatePresence>
-        {state.step === 1 && (
-          <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 30 }} transition={{ duration: 0.5 }}>
-          <Card className="p-8 glassmorphism-card">
-            <h2 className="text-2xl font-bold mb-6">Tell us about your business</h2>
-            <form onSubmit={handleStartTrial} className="space-y-4">
-              <div>
-                <Label htmlFor="email">Email Address</Label>
-                <Input
-                  id="email"
-                  name="email"
-                  type="email"
-                  value={state.email}
-                  onChange={(e) => setState(prev => ({ ...prev, email: e.target.value }))}
-                  placeholder="you@company.com"
-                  required
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="businessName">Business Name</Label>
-                <Input
-                  id="businessName"
-                  name="businessName"
-                  value={state.businessName}
-                  onChange={(e) => setState(prev => ({ ...prev, businessName: e.target.value }))}
-                  placeholder="Acme Inc."
-                  required
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="businessType">Business Type</Label>
-                <Select
-                  name="businessType"
-                  value={state.businessType}
-                  onValueChange={(value: BusinessType) => setState(prev => ({ ...prev, businessType: value }))}
-                >
-                  <SelectTrigger id="businessType" name="businessType">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="service">Service Business</SelectItem>
-                    <SelectItem value="ecommerce">E-commerce</SelectItem>
-                    <SelectItem value="saas">SaaS Product</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Website URL Detection */}
-              <div className="space-y-2">
-                <Label htmlFor="websiteUrl">Website URL (optional - auto-detects your platform)</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="websiteUrl"
-                    name="websiteUrl"
-                    type="url"
-                    value={websiteUrl}
-                    onChange={(e) => {
-                      setWebsiteUrl(e.target.value);
-                      setDetectedPlatform(null);
-                      setDetectionError(null);
-                    }}
-                    placeholder="https://yourwebsite.com"
-                    className="flex-1"
-                  />
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    onClick={detectPlatform}
-                    disabled={detecting || !websiteUrl.trim()}
-                    className="whitespace-nowrap"
-                  >
-                    {detecting ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Detecting...
-                      </>
-                    ) : (
-                      <>
-                        <Globe className="w-4 h-4 mr-2" />
-                        Detect
-                      </>
-                    )}
-                  </Button>
-                </div>
-
-                {/* Detection Result - Success */}
-                <AnimatePresence>
-                  {detectedPlatform && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                      className="p-3 rounded-lg bg-green-500/10 border border-green-500/30"
-                    >
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-5 h-5 text-green-400" />
-                        <span className="font-medium text-green-300">
-                          Detected: {detectedPlatform.name}
-                        </span>
-                        <span className="text-sm text-green-400/70 ml-auto">
-                          {Math.round(detectedPlatform.confidence * 100)}% confidence
-                        </span>
-                      </div>
-                      {detectedPlatform.evidence.length > 0 && (
-                        <p className="text-xs text-green-400/60 mt-1 ml-7">
-                          Evidence: {detectedPlatform.evidence.join(', ')}
-                        </p>
-                      )}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                {/* Detection Result - Error */}
-                <AnimatePresence>
-                  {detectionError && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                      className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30"
-                    >
-                      <div className="flex items-center gap-2">
-                        <AlertCircle className="w-5 h-5 text-amber-400" />
-                        <span className="text-sm text-amber-300">{detectionError}</span>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? <Spinner className="mr-2" /> : null}
-                Start Free Trial
-              </Button>
-            </form>
-          </Card>
+              );
+            })}
           </motion.div>
-        )}
-        </AnimatePresence>
 
-        {/* Step 2: Knowledge Base */}
-        <AnimatePresence>
-        {state.step === 2 && (
-          <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 30 }} transition={{ duration: 0.5 }}>
-          <Card className="p-8 glassmorphism-card">
-            <h2 className="text-2xl font-bold mb-6">Add Your Knowledge Base</h2>
-            {ingestionStatus === 'processing' ? (
-              <ContinueWithLoader
-                loading={true}
-                progress={ingestionProgress}
-                jobId={ingestionJobId}
-                tenantId={state.tenantId}
-                setupToken={state.setupToken}
-                expired={trialExpired}
-                expirationMessage={trialExpiryMessage}
-                onUpgrade={() => window.location.reload()}
-                upgradeUrl="https://bitb.ltd/subscription"
-                onLoaderComplete={handleKBLoaderComplete}
-                onLoaderFailure={handleLoaderFailure}
-                onLoaderProgress={handleLoaderProgress}
-              />
-            ) : (
-              <form onSubmit={handleKBSubmit} className="space-y-4">
-                <div>
-                  <Label htmlFor="companyInfo">Company Information</Label>
-                  <Textarea
-                    id="companyInfo"
-                    value={companyInfo}
-                    onChange={(e) => setCompanyInfo(e.target.value)}
-                    placeholder="Tell us about your company, products, services, and common questions..."
-                    rows={8}
-                    maxLength={10000}
-                    required
-                  />
-                  <p className="text-sm text-gray-500 mt-1">
-                    {companyInfo.length} / 10,000 characters
-                  </p>
-                </div>
-
-                <div>
-                  <Label>Knowledge Base Sources</Label>
-                  <div className="grid grid-cols-2 gap-2 mt-2 text-sm text-gray-200">
-                    {['docs', 'urls', 'csv', 'google_drive', 'notion', 'zendesk', 'crm_export'].map((src) => (
-                      <label key={src} htmlFor={`kb-source-${src}`} className="flex items-center gap-2">
-                        <input
-                          id={`kb-source-${src}`}
-                          name={`kb-source-${src}`}
-                          type="checkbox"
-                          checked={knowledgeBaseSources.includes(src)}
-                          onChange={(e) => {
-                            setKnowledgeBaseSources((prev) => {
-                              if (e.target.checked) return Array.from(new Set([...prev, src]));
-                              return prev.filter((item) => item !== src);
-                            });
-                          }}
-                        />
-                        <span className="capitalize">{src.replace('_', ' ')}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? <Spinner className="mr-2" /> : null}
-                  Continue to Branding
-                </Button>
-              </form>
-            )}
-          </Card>
-          </motion.div>
-        )}
-        </AnimatePresence>
-
-        {/* Step 3: Branding */}
-        <AnimatePresence>
-        {state.step === 3 && (
-          <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 30 }} transition={{ duration: 0.5 }}>
-          <Card className="p-8 glassmorphism-card">
-            <h2 className="text-2xl font-bold mb-6">Customize Your Chatbot</h2>
-            {ingestionStatus === 'processing' ? (
-              <ContinueWithLoader
-                loading={true}
-                progress={ingestionProgress}
-                jobId={ingestionJobId}
-                tenantId={state.tenantId}
-                setupToken={state.setupToken}
-                expired={trialExpired}
-                expirationMessage={trialExpiryMessage}
-                onUpgrade={() => window.location.reload()}
-                upgradeUrl="https://bitb.ltd/subscription"
-                onLoaderComplete={handleLoaderComplete}
-                onLoaderFailure={handleLoaderFailure}
-                onLoaderProgress={handleLoaderProgress}
-              />
-            ) : (
-              <form onSubmit={handleBrandingSubmit} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="primaryColor">Primary Color</Label>
-                    <Input
-                      id="primaryColor"
-                      name="primaryColor"
-                      type="color"
-                      value={state.primaryColor}
-                      onChange={(e) => setState(prev => ({ ...prev, primaryColor: e.target.value }))}
-                    />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="secondaryColor">Secondary Color</Label>
-                    <Input
-                      id="secondaryColor"
-                      name="secondaryColor"
-                      type="color"
-                      value={state.secondaryColor}
-                      onChange={(e) => setState(prev => ({ ...prev, secondaryColor: e.target.value }))}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="framework">Framework</Label>
-                    <Select name="framework" value={framework} onValueChange={setFramework as any}>
-                      <SelectTrigger id="framework" name="framework">
-                        <SelectValue placeholder="Select framework" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="react">React</SelectItem>
-                        <SelectItem value="nextjs">Next.js</SelectItem>
-                        <SelectItem value="svelte">Svelte</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="hosting">Hosting Provider</Label>
-                    <Input
-                      id="hosting"
-                      name="hosting"
-                      value={hosting}
-                      onChange={(e) => setHosting(e.target.value)}
-                      placeholder="Vercel, AWS, Netlify, Render..."
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <Label htmlFor="chatTone">Chat Tone</Label>
-                  <Select
-                    name="chatTone"
-                    value={state.chatTone}
-                    onValueChange={(value: any) => setState(prev => ({ ...prev, chatTone: value }))}
-                  >
-                    <SelectTrigger id="chatTone" name="chatTone">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="professional">Professional</SelectItem>
-                      <SelectItem value="friendly">Friendly</SelectItem>
-                      <SelectItem value="casual">Casual</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <Label htmlFor="welcomeMessage">Welcome Message</Label>
-                  <Textarea
-                    id="welcomeMessage"
-                    name="welcomeMessage"
-                    value={state.welcomeMessage}
-                    onChange={(e) => setState(prev => ({ ...prev, welcomeMessage: e.target.value }))}
-                    rows={2}
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="logoUrl">Logo (optional)</Label>
-                  <Input
-                    id="logoUrl"
-                    name="logoUrl"
-                    value={logoUrl}
-                    onChange={(e) => setLogoUrl(e.target.value)}
-                    placeholder="https://...logo.png"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="platform">Platform</Label>
-                  <Select value={platform} onValueChange={setPlatform}>
-                    <SelectTrigger id="platform" name="platform">
-                      <SelectValue placeholder="Select platform" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="playground">Playground</SelectItem>
-                      <SelectItem value="website">Website / Web App</SelectItem>
-                      <SelectItem value="shopify">Shopify</SelectItem>
-                      <SelectItem value="wordpress">WordPress</SelectItem>
-                      <SelectItem value="framer">Framer</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <button
-                  data-slot="button"
-                  className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive shadow-xs hover:bg-primary/90 h-9 px-4 py-2 has-[>svg]:px-3 w-full bg-white text-black font-bold mt-6"
-                  type="submit"
-                  disabled={loading}
-                >
-                  Continue
-                </button>
-              </form>
-            )}
-          </Card>
-          </motion.div>
-        )}
-        </AnimatePresence>
-
-        {/* Step 4: Get Widget Code */}
-        <AnimatePresence>
-        {state.step === 4 && (
-          <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 30 }} transition={{ duration: 0.5 }}>
-          <Card className="p-8 glassmorphism-card">
-            <h2 className="text-2xl font-bold mb-6">Your Chatbot is Ready!</h2>
-
-            {ingestionStatus === 'processing' ? (
-              <ContinueWithLoader 
-                loading={true}
-                progress={ingestionProgress}
-                jobId={ingestionJobId}
-                tenantId={state.tenantId}
-                setupToken={state.setupToken}
-                expired={trialExpired}
-                expirationMessage={trialExpiryMessage}
-                onUpgrade={() => window.location.reload()}
-                upgradeUrl="https://bitb.ltd/subscription"
-                onLoaderComplete={handleLoaderComplete}
-                onLoaderFailure={handleLoaderFailure}
-                onLoaderProgress={handleLoaderProgress}
-              />
-            ) : !state.embedCode ? (
-              <Button onClick={handleGenerateWidget} className="w-full mb-4" disabled={loading}>
-                {loading ? <Spinner className="mr-2" /> : null}
-                Generate Widget Code
-              </Button>
-            ) : (
-              <div className="space-y-4">
-                <div>
-                  <Label>Assigned Tools</Label>
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {state.assignedTools.map(tool => (
-                      <span key={tool} className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-sm">
-                        {tool.replace('_', ' ')}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <Label>Embed Code</Label>
-                  <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto mt-2">
-                    <code>{state.embedCode}</code>
-                  </pre>
-                  <Button
-                    onClick={() => navigator.clipboard.writeText(state.embedCode!)}
-                    className="mt-2"
-                    variant="outline"
-                  >
-                    Copy to Clipboard
-                  </Button>
-                </div>
-
-                <Alert>
-                  <AlertDescription>
-                    Add this code to your website before the closing <code>&lt;/body&gt;</code> tag.
-                    Your trial expires on {new Date(state.trialExpiresAt!).toLocaleDateString()}.
-                  </AlertDescription>
+          {/* Error Alert */}
+          <AnimatePresence>
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.3 }}
+              >
+                <Alert variant="destructive" className="mb-6">
+                  <AlertDescription>{error}</AlertDescription>
                 </Alert>
-              </div>
+              </motion.div>
             )}
-          </Card>
-          </motion.div>
-        )}
-        </AnimatePresence>
+          </AnimatePresence>
+
+          {/* Step 1: Get Started */}
+          <AnimatePresence>
+            {state.step === 1 && (
+              <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 30 }} transition={{ duration: 0.5 }}>
+                <Card className="p-8 glassmorphism-card">
+                  <h2 className="text-2xl font-bold mb-6">Tell us about your business</h2>
+                  <form onSubmit={handleStartTrial} className="space-y-4">
+                    <div>
+                      <Label htmlFor="email">Email Address</Label>
+                      <Input
+                        id="email"
+                        name="email"
+                        type="email"
+                        value={state.email}
+                        onChange={(e) => setState(prev => ({ ...prev, email: e.target.value }))}
+                        placeholder="you@company.com"
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <Label htmlFor="businessName">Business Name</Label>
+                      <Input
+                        id="businessName"
+                        name="businessName"
+                        value={state.businessName}
+                        onChange={(e) => setState(prev => ({ ...prev, businessName: e.target.value }))}
+                        placeholder="Acme Inc."
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <Label htmlFor="businessType">Business Type</Label>
+                      <Select
+                        name="businessType"
+                        value={state.businessType}
+                        onValueChange={(value: BusinessType) => setState(prev => ({ ...prev, businessType: value }))}
+                      >
+                        <SelectTrigger id="businessType" name="businessType">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="service">Service Business</SelectItem>
+                          <SelectItem value="ecommerce">E-commerce</SelectItem>
+                          <SelectItem value="saas">SaaS Product</SelectItem>
+                          <SelectItem value="other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+
+
+                    <Button type="submit" className="w-full" disabled={loading}>
+                      {loading ? <Spinner className="mr-2" /> : null}
+                      Start Free Trial
+                    </Button>
+                  </form>
+                </Card>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Step 2: Knowledge Base */}
+          <AnimatePresence>
+            {state.step === 2 && (
+              <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 30 }} transition={{ duration: 0.5 }}>
+                <Card className="p-8 glassmorphism-card">
+                  <h2 className="text-2xl font-bold mb-6">Add Your Knowledge Base</h2>
+                  {ingestionStatus === 'processing' ? (
+                    <ContinueWithLoader
+                      loading={true}
+                      progress={ingestionProgress}
+                      jobId={ingestionJobId}
+                      tenantId={state.tenantId}
+                      setupToken={state.setupToken}
+                      expired={trialExpired}
+                      expirationMessage={trialExpiryMessage}
+                      onUpgrade={() => window.location.reload()}
+                      upgradeUrl="https://bitb.ltd/subscription"
+                      onLoaderComplete={handleKBLoaderComplete}
+                      onLoaderFailure={handleLoaderFailure}
+                      onLoaderProgress={handleLoaderProgress}
+                    />
+                  ) : (
+                    <form onSubmit={handleKBSubmit} className="space-y-4">
+                      <div>
+                        <Label htmlFor="companyInfo">Company Information</Label>
+                        <Textarea
+                          id="companyInfo"
+                          value={companyInfo}
+                          onChange={(e) => setCompanyInfo(e.target.value)}
+                          placeholder="Tell us about your company, products, services, and common questions..."
+                          rows={8}
+                          maxLength={10000}
+                          required
+                        />
+                        <p className="text-sm text-gray-500 mt-1">
+                          {companyInfo.length} / 10,000 characters
+                        </p>
+                      </div>
+
+                      <div>
+                        <Label>Knowledge Base Sources</Label>
+                        <div className="grid grid-cols-2 gap-2 mt-2 text-sm text-gray-200">
+                          {['docs', 'urls', 'csv', 'google_drive', 'notion', 'zendesk', 'crm_export'].map((src) => (
+                            <label key={src} htmlFor={`kb-source-${src}`} className="flex items-center gap-2">
+                              <input
+                                id={`kb-source-${src}`}
+                                name={`kb-source-${src}`}
+                                type="checkbox"
+                                checked={knowledgeBaseSources.includes(src)}
+                                onChange={(e) => {
+                                  setKnowledgeBaseSources((prev) => {
+                                    if (e.target.checked) return Array.from(new Set([...prev, src]));
+                                    return prev.filter((item) => item !== src);
+                                  });
+                                }}
+                              />
+                              <span className="capitalize">{src.replace('_', ' ')}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      <Button type="submit" className="w-full" disabled={loading}>
+                        {loading ? <Spinner className="mr-2" /> : null}
+                        Continue to Branding
+                      </Button>
+                    </form>
+                  )}
+                </Card>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Step 3: Branding */}
+          <AnimatePresence>
+            {state.step === 3 && (
+              <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 30 }} transition={{ duration: 0.5 }}>
+                <Card className="p-8 glassmorphism-card">
+                  <h2 className="text-2xl font-bold mb-6">Customize Your Chatbot</h2>
+                  {ingestionStatus === 'processing' ? (
+                    <ContinueWithLoader
+                      loading={true}
+                      progress={ingestionProgress}
+                      jobId={ingestionJobId}
+                      tenantId={state.tenantId}
+                      setupToken={state.setupToken}
+                      expired={trialExpired}
+                      expirationMessage={trialExpiryMessage}
+                      onUpgrade={() => window.location.reload()}
+                      upgradeUrl="https://bitb.ltd/subscription"
+                      onLoaderComplete={handleLoaderComplete}
+                      onLoaderFailure={handleLoaderFailure}
+                      onLoaderProgress={handleLoaderProgress}
+                    />
+                  ) : (
+                    <form onSubmit={handleBrandingSubmit} className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="primaryColor">Primary Color</Label>
+                          <Input
+                            id="primaryColor"
+                            name="primaryColor"
+                            type="color"
+                            value={state.primaryColor}
+                            onChange={(e) => setState(prev => ({ ...prev, primaryColor: e.target.value }))}
+                          />
+                        </div>
+
+                        <div>
+                          <Label htmlFor="secondaryColor">Secondary Color</Label>
+                          <Input
+                            id="secondaryColor"
+                            name="secondaryColor"
+                            type="color"
+                            value={state.secondaryColor}
+                            onChange={(e) => setState(prev => ({ ...prev, secondaryColor: e.target.value }))}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="framework">Framework</Label>
+                          <Select name="framework" value={framework} onValueChange={setFramework as any}>
+                            <SelectTrigger id="framework" name="framework">
+                              <SelectValue placeholder="Select framework" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="react">React</SelectItem>
+                              <SelectItem value="nextjs">Next.js</SelectItem>
+                              <SelectItem value="svelte">Svelte</SelectItem>
+                              <SelectItem value="other">Other</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label htmlFor="chatTone">Chat Tone</Label>
+                        <Select
+                          name="chatTone"
+                          value={state.chatTone}
+                          onValueChange={(value: any) => setState(prev => ({ ...prev, chatTone: value }))}
+                        >
+                          <SelectTrigger id="chatTone" name="chatTone">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="professional">Professional</SelectItem>
+                            <SelectItem value="friendly">Friendly</SelectItem>
+                            <SelectItem value="casual">Casual</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div>
+                        <Label htmlFor="welcomeMessage">Welcome Message</Label>
+                        <Textarea
+                          id="welcomeMessage"
+                          name="welcomeMessage"
+                          value={state.welcomeMessage}
+                          onChange={(e) => setState(prev => ({ ...prev, welcomeMessage: e.target.value }))}
+                          rows={2}
+                        />
+                      </div>
+
+                      <div>
+                        <Label htmlFor="logoUrl">Logo (optional)</Label>
+                        <Input
+                          id="logoUrl"
+                          name="logoUrl"
+                          value={logoUrl}
+                          onChange={(e) => setLogoUrl(e.target.value)}
+                          placeholder="https://...logo.png"
+                        />
+                      </div>
+
+                      <button
+                        data-slot="button"
+                        className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive shadow-xs hover:bg-primary/90 h-9 px-4 py-2 has-[>svg]:px-3 w-full bg-white text-black font-bold mt-6"
+                        type="submit"
+                        disabled={loading}
+                      >
+                        Continue
+                      </button>
+                    </form>
+                  )}
+                </Card>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Step 4: Get Widget Code */}
+          <AnimatePresence>
+            {state.step === 4 && (
+              <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 30 }} transition={{ duration: 0.5 }}>
+                <Card className="p-8 glassmorphism-card">
+                  <h2 className="text-2xl font-bold mb-6">Your Chatbot is Ready!</h2>
+
+                  {ingestionStatus === 'processing' ? (
+                    <ContinueWithLoader
+                      loading={true}
+                      progress={ingestionProgress}
+                      jobId={ingestionJobId}
+                      tenantId={state.tenantId}
+                      setupToken={state.setupToken}
+                      expired={trialExpired}
+                      expirationMessage={trialExpiryMessage}
+                      onUpgrade={() => window.location.reload()}
+                      upgradeUrl="https://bitb.ltd/subscription"
+                      onLoaderComplete={handleLoaderComplete}
+                      onLoaderFailure={handleLoaderFailure}
+                      onLoaderProgress={handleLoaderProgress}
+                    />
+                  ) : !state.embedCode ? (
+                    <Button onClick={handleGenerateWidget} className="w-full mb-4" disabled={loading}>
+                      {loading ? <Spinner className="mr-2" /> : null}
+                      Generate Widget Code
+                    </Button>
+                  ) : (
+                    <div className="space-y-4">
+                      <div>
+                        <Label>Assigned Tools</Label>
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {state.assignedTools.map(tool => (
+                            <span key={tool} className="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-sm">
+                              {tool.replace('_', ' ')}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label>Embed Code</Label>
+                        <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto mt-2">
+                          <code>{state.embedCode}</code>
+                        </pre>
+                        <Button
+                          onClick={() => navigator.clipboard.writeText(state.embedCode!)}
+                          className="mt-2"
+                          variant="outline"
+                        >
+                          Copy to Clipboard
+                        </Button>
+                      </div>
+
+                      <Alert>
+                        <AlertDescription>
+                          Add this code to your website before the closing <code>&lt;/body&gt;</code> tag.
+                          Your trial expires on {new Date(state.trialExpiresAt!).toLocaleDateString()}.
+                        </AlertDescription>
+                      </Alert>
+                    </div>
+                  )}
+                </Card>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </motion.div>
     </>

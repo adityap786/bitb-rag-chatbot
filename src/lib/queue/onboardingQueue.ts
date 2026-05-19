@@ -1,4 +1,5 @@
-import { Queue, Worker, QueueScheduler, Job } from 'bullmq';
+// BullMQ v5: QueueScheduler is no longer needed - delayed jobs are handled automatically
+import { Queue, Worker, Job } from 'bullmq';
 
 type OnboardingJobData = Record<string, any> & { type: string; tenantId: string };
 type OnboardingProcessor = (job: Job<OnboardingJobData>) => Promise<any>;
@@ -31,7 +32,6 @@ function resolveBullmqConnection(): any {
 }
 
 let _queue: Queue<OnboardingJobData> | null = null;
-let _scheduler: QueueScheduler | null = null;
 let _worker: Worker<OnboardingJobData> | null = null;
 
 export function getOnboardingQueue() {
@@ -41,12 +41,8 @@ export function getOnboardingQueue() {
   return _queue;
 }
 
-export function getOnboardingQueueScheduler() {
-  if (!_scheduler) {
-    _scheduler = new QueueScheduler('onboarding', { connection: resolveBullmqConnection() });
-  }
-  return _scheduler;
-}
+// BullMQ v5: QueueScheduler is deprecated and no longer needed
+// export function getOnboardingQueueScheduler() - REMOVED
 
 export function startOnboardingWorker(processor?: OnboardingProcessor) {
   if (_worker) return _worker;

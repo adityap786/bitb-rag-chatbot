@@ -49,6 +49,11 @@ class InMemoryRedis {
     return next;
   }
 
+  async decrby(key: string, amount: number) {
+    // decrby is just incrby with negative amount
+    return this.incrby(key, -amount);
+  }
+
   async expire(key: string, seconds: number) {
     if (seconds <= 0) return 0;
     const current = this.ensure(key);
@@ -110,7 +115,17 @@ const preferRealRedis = Boolean(process.env.BULLMQ_REDIS_URL || process.env.REDI
 // redis:// or rediss:// URL) don't accidentally fall back to an in-memory mock.
 let useMock = false;
 if (preferRealRedis) {
-  useMock = false;
+  // If a Redis URL was provided (e.g., for BullMQ), prefer a real Redis
+  // connection — but only if Upstash-specific credentials are present.
+  // When running unit tests we often set `REDIS_URL` in the vitest config
+  // for unrelated reasons; in that case we should NOT attempt to initialize
+  // the Upstash HTTP client if its own env vars are missing.
+  if (!redisUrl || !redisToken) {
+    console.warn('[redis-client-upstash] preferRealRedis set but UPSTASH env missing — falling back to in-memory mock.');
+    useMock = true;
+  } else {
+    useMock = false;
+  }
 } else {
   useMock =
     process.env.REDIS_USE_MOCK === 'true' ||
@@ -128,9 +143,9 @@ console.log('[DEBUG] redis-client-upstash useMock (after prefer override):', use
 export const upstashRedis = useMock
   ? (new InMemoryRedis() as any)
   : new Redis({
-      url: redisUrl as string,
-      token: redisToken as string,
-    });
+    url: redisUrl as string,
+    token: redisToken as string,
+  });
 
 // Example usage:
 // await upstashRedis.set('key', 'value');

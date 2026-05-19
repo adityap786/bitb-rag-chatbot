@@ -30,6 +30,44 @@ export async function startTenantPipeline(tenantId: string, options: StartPipeli
   // Treat an in-progress job as processing to avoid duplicate work.
   // NOTE: Do not rely on tenants.status for pipeline state; that column is tenant lifecycle.
   if (options.skipIfProcessing) {
+    // FIRST: Check for jobs that completed with 0 vectors - these should be retried if KB now has content
+    // This fixes the race condition where pipeline runs before KB insert is committed.
+    const { data: lastCompletedJob } = await supabase
+      .from('ingestion_jobs')
+      .select('job_id, status, embeddings_count, updated_at')
+      .eq('tenant_id', tenantId)
+      .eq('status', 'completed')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (lastCompletedJob && (lastCompletedJob.embeddings_count ?? 0) === 0) {
+      // Check if KB now has content that can be processed
+      const { count: kbCount } = await supabase
+        .from('knowledge_base')
+        .select('*', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId);
+
+      if ((kbCount ?? 0) > 0) {
+        // KB has content but last job produced 0 vectors - allow retry by continuing past this check
+        console.log('[startTenantPipeline] Last job had 0 vectors but KB has content, allowing retry', {
+          tenantId,
+          lastJobId: lastCompletedJob.job_id,
+          kbCount,
+        });
+      } else {
+        // No KB content to process - return completed status to avoid stuck state
+        return {
+          status: 'completed' as const,
+          jobId: lastCompletedJob.job_id,
+          startedAt: null,
+          vectorCount: 0,
+          message: 'No knowledge base content to process',
+        };
+      }
+    }
+
+    // SECOND: Check for currently running jobs
     const { data: existingJob } = await supabase
       .from('ingestion_jobs')
       .select('job_id, status, started_at')
@@ -47,6 +85,7 @@ export async function startTenantPipeline(tenantId: string, options: StartPipeli
       } as const;
     }
   }
+
 
   const { data: job, error: jobError } = await supabase
     .from('ingestion_jobs')
@@ -82,13 +121,18 @@ export async function startTenantPipeline(tenantId: string, options: StartPipeli
       console.warn('[startTenantPipeline] BullMQ enqueue failed, falling back to in-process execution:', err.message);
 
       // Fallback: run in-process
-      void buildRAGPipeline(tenantId, config, job.job_id).catch((err) => {
+      buildRAGPipeline(tenantId, config, job.job_id).catch(async (err) => {
         console.error('[startTenantPipeline] build pipeline via fallback failed', {
           tenantId,
           jobId: job.job_id,
           error: err.message,
           stack: err.stack,
         });
+        // Update job status to failed
+        await supabase.from('ingestion_jobs').update({
+          status: 'failed',
+          error_message: err.message,
+        }).eq('job_id', job.job_id);
       });
     }
   } else {
@@ -106,13 +150,19 @@ export async function startTenantPipeline(tenantId: string, options: StartPipeli
     }
 
     // Dev fallback: run in-process if no BullMQ Redis is configured.
-    void buildRAGPipeline(tenantId, config, job.job_id).catch((err) => {
+    buildRAGPipeline(tenantId, config, job.job_id).catch(async (err) => {
       console.error('[startTenantPipeline] build pipeline failed', {
         tenantId,
         jobId: job.job_id,
         error: err.message,
         stack: err.stack,
       });
+      // Update job status to failed so frontend can show error
+      await supabase.from('ingestion_jobs').update({
+        status: 'failed',
+        error_message: err.message,
+        error_details: { stack: err.stack },
+      }).eq('job_id', job.job_id);
     });
   }
 

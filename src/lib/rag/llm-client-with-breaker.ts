@@ -151,6 +151,48 @@ export class GroqClientWithBreaker {
     }
   }
 
+  async stream(request: LLMRequest): Promise<AsyncIterable<any>> {
+    recordLLMBreakerRequest(this.defaultModel);
+    try {
+      // Circuit breaker protects the *initial connection*
+      const stream = await this.breaker.execute(async () => {
+        const startTime = Date.now();
+        try {
+          const completionStream = await this.client.chat.completions.create({
+            model: request.model || this.defaultModel,
+            messages: request.messages as any,
+            temperature: request.temperature ?? 0.7,
+            max_tokens: request.maxTokens ?? 2048,
+            stream: true,
+          });
+
+          logger.info('LLM stream connection established', {
+            model: request.model || this.defaultModel,
+            latencyMs: Date.now() - startTime,
+          });
+
+          return completionStream;
+        } catch (error) {
+          logger.error('LLM stream connection failed', {
+            model: request.model || this.defaultModel,
+            error: error instanceof Error ? error.message : String(error),
+            latencyMs: Date.now() - startTime,
+          });
+          throw error;
+        }
+      });
+
+      recordLLMBreakerSuccess(this.defaultModel);
+      this.lastSuccessAt = Date.now();
+      return stream;
+    } catch (error) {
+      recordLLMBreakerFailure(this.defaultModel);
+      this.lastFailureAt = Date.now();
+      this.lastFailureMessage = error instanceof Error ? error.message : String(error);
+      throw error;
+    }
+  }
+
   getBreakerState() {
     return {
       state: this.lastStateLabel,

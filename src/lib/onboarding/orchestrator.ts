@@ -14,12 +14,13 @@ import { SupabaseClient, createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { logger } from '../observability/logger';
 import { TenantManager, TenantConfig, CreateTenantRequest } from '../tenant/tenant-manager';
+import { redis } from '../redis-client';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export type OnboardingStep = 
+export type OnboardingStep =
   | 'account_creation'
   | 'knowledge_base'
   | 'branding'
@@ -28,7 +29,7 @@ export type OnboardingStep =
   | 'verification'
   | 'completed';
 
-export type OnboardingStatus = 
+export type OnboardingStatus =
   | 'pending'
   | 'in_progress'
   | 'paused'
@@ -278,6 +279,9 @@ export class OnboardingOrchestrator {
    * Get current onboarding state
    */
   async getOnboardingState(onboardingId: string): Promise<OnboardingState | null> {
+    const cached = await this.getCachedState(onboardingId);
+    if (cached) return cached;
+
     const { data, error } = await this.db
       .from('onboarding_states')
       .select('*')
@@ -288,7 +292,11 @@ export class OnboardingOrchestrator {
       return null;
     }
 
-    return data as OnboardingState;
+    const state = data as OnboardingState;
+    await this.setCachedState(state);
+    return state;
+
+
   }
 
   /**
@@ -306,6 +314,12 @@ export class OnboardingOrchestrator {
     if (error || !data) {
       return null;
     }
+
+    const state = data as OnboardingState;
+    await this.setCachedState(state); // Cache using onboarding_id, technically we could also cache by tenant_id mapping but simplified for now
+    return state;
+
+
 
     return data as OnboardingState;
   }
@@ -801,7 +815,10 @@ export class OnboardingOrchestrator {
       throw new Error(`Failed to update step: ${error.message}`);
     }
 
-    return updated as OnboardingState;
+    const updatedState = updated as OnboardingState;
+    await this.setCachedState(updatedState);
+
+    return updatedState;
   }
 
   private generateEmbedCode(
@@ -933,6 +950,36 @@ export class OnboardingOrchestrator {
   private async triggerWebhook(event: string, data: unknown): Promise<void> {
     // Trigger webhook for external integrations
     logger.info('Triggering webhook', { event });
+  }
+
+  // --------------------------------------------------------------------------
+  // Caching Helpers
+  // --------------------------------------------------------------------------
+
+  private async getCachedState(onboardingId: string): Promise<OnboardingState | null> {
+    try {
+      const cached = await redis.get(`onboarding:${onboardingId}`);
+      if (cached) return JSON.parse(cached);
+    } catch (e) {
+      logger.warn('Redis cache get error', { error: e });
+    }
+    return null;
+  }
+
+  private async setCachedState(state: OnboardingState): Promise<void> {
+    try {
+      await redis.set(`onboarding:${state.onboarding_id}`, JSON.stringify(state), { ex: 300 });
+    } catch (e) {
+      logger.warn('Redis cache set error', { error: e });
+    }
+  }
+
+  private async invalidateCache(onboardingId: string): Promise<void> {
+    try {
+      await redis.del(`onboarding:${onboardingId}`);
+    } catch (e) {
+      logger.warn('Redis cache del error', { error: e });
+    }
   }
 }
 

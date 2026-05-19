@@ -112,7 +112,6 @@ export interface WidgetConfig {
   prompt_template: string | null;
   avatar_url?: string;
   framework?: string | null;
-  hosting?: string | null;
   platform?: string | null;
   knowledge_base_sources?: string[] | null;
   updated_at: string;
@@ -126,7 +125,6 @@ export interface BrandingRequest {
   welcomeMessage?: string;
   platform?: string;
   framework?: string;
-  hosting?: string;
   logoUrl?: string;
   knowledgeBaseSources?: string[];
 }
@@ -231,7 +229,7 @@ export interface TenantUsageMetrics {
   period_start: string;
   period_end: string;
   period_type: 'hourly' | 'daily' | 'monthly';
-  
+
   // API metrics
   api_calls_total: number;
   api_calls_successful: number;
@@ -240,32 +238,32 @@ export interface TenantUsageMetrics {
   api_latency_avg_ms: number;
   api_latency_p95_ms: number;
   api_latency_p99_ms: number;
-  
+
   // Chat metrics
   chat_messages_sent: number;
   chat_messages_received: number;
   chat_sessions_created: number;
   chat_avg_response_time_ms: number;
-  
+
   // Embeddings metrics
   embeddings_generated: number;
   embeddings_tokens_used: number;
   semantic_searches_performed: number;
   kb_documents_ingested: number;
   kb_documents_failed: number;
-  
+
   // Quota
   total_tokens_used: number;
   estimated_cost_usd: number;
   quota_limit: number | null;
   quota_remaining: number;
   quota_exceeded_count: number;
-  
+
   // Performance
   error_count: number;
   error_rate: number;
   peak_qps: number;
-  
+
   created_at: string;
   updated_at: string;
 }
